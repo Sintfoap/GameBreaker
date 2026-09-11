@@ -297,13 +297,45 @@
     return parseCostFromText(btn.textContent) || parseCostFromText(btn.title) || 0;
   }
 
-  async function tenureRow(row) {
-    // Re-look-up by name on every poll rather than trusting the held
+  // The faculty roster can contain multiple distinct professors sharing
+  // the exact same name (e.g. two "Verity St. Kathryn" rows, one already
+  // tenured and one not). Looking up "the row named X" by name alone
+  // silently binds to whichever same-named row appears first in the DOM,
+  // which can be the wrong individual entirely. Disambiguate with the
+  // row's ordinal position among same-named rows (1st "Verity St.
+  // Kathryn", 2nd "Verity St. Kathryn", etc.) instead.
+  function rowIdentityKey(rows, row) {
+    const name = rowName(row);
+    let ordinal = 0;
+    for (const r of rows) {
+      if (r === row) break;
+      if (rowName(r) === name) ordinal++;
+    }
+    return `${name}#${ordinal}`;
+  }
+
+  function findRowByIdentityKey(rows, key) {
+    const hashIdx = key.lastIndexOf('#');
+    const name = key.slice(0, hashIdx);
+    const ordinal = Number(key.slice(hashIdx + 1));
+    let count = 0;
+    for (const r of rows) {
+      if (rowName(r) === name) {
+        if (count === ordinal) return r;
+        count++;
+      }
+    }
+    return null;
+  }
+
+  async function tenureRow(row, rowsAtSelection) {
+    // Re-look-up by identity on every poll rather than trusting the held
     // node: if the Faculty list re-renders wholesale under load, the
     // original row node can end up detached and frozen, which would
     // otherwise make every check below see stale content forever.
     const name = rowName(row);
-    const findFresh = () => getFacultyRows().find((r) => rowName(r) === name);
+    const key = rowIdentityKey(rowsAtSelection, row);
+    const findFresh = () => findRowByIdentityKey(getFacultyRows(), key);
 
     const ready = await waitForCondition(() => {
       const r = findFresh();
@@ -337,22 +369,26 @@
     // A professor whose Tenure button won't cooperate (or whose badge
     // won't update) is skipped, not treated as a reason to stop -- only a
     // funds error (a global constraint that will recur for everyone else
-    // too) ends the run early.
-    const skipped = new Set();
+    // too) ends the run early. Keyed by identity (name + ordinal), not
+    // bare name, so skipping one same-named duplicate doesn't also skip
+    // a different professor who happens to share their name.
+    const skipped = new Map();
     while (true) {
-      const row = getFacultyRows().filter((r) => rowNeedsTenure(r) && !skipped.has(rowName(r)))[0];
+      const rows = getFacultyRows();
+      const row = rows.filter((r) => rowNeedsTenure(r) && !skipped.has(rowIdentityKey(rows, r)))[0];
       if (!row) break;
       const name = rowName(row);
+      const key = rowIdentityKey(rows, row);
       try {
-        const result = await tenureRow(row);
+        const result = await tenureRow(row, rows);
         if (result === 'unavailable') {
           console.warn(`[MU] Skipping ${name} — tenure button unavailable.`);
-          skipped.add(name);
+          skipped.set(key, name);
           continue;
         }
         if (result === 'stuck') {
           console.warn(`[MU] Skipping ${name} — tenure status didn't update; the page may be slow to update.`);
-          skipped.add(name);
+          skipped.set(key, name);
           continue;
         }
         console.log(`[MU] Tenured ${name}.`);
@@ -363,7 +399,7 @@
       }
     }
     if (skipped.size > 0) {
-      console.warn(`[MU] Skipped ${skipped.size} professor(s): ${Array.from(skipped).join(', ')}.`);
+      console.warn(`[MU] Skipped ${skipped.size} professor(s): ${Array.from(skipped.values()).join(', ')}.`);
     }
     console.log(`[MU] Done. Tenured ${tenured} professor(s).`);
     return tenured;
