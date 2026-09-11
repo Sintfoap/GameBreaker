@@ -1,17 +1,19 @@
-// Magic University console tool: hiring from "On the market".
+// Magic University console tool: hiring and tenure.
 //
 // Usage:
 //   1. Open the game in your browser, log in, and make sure you're on the
-//      Action page (the one showing "On the market", "The treasury", etc).
+//      Action page (the one showing "On the market", "Faculty", "The
+//      treasury", etc).
 //   2. Open DevTools (F12) -> Console tab.
 //   3. Paste this entire file and press Enter. You should see "[MU] Loaded.".
 //   4. Run one of:
-//        MU.status()       // just reports gold + market composition
+//        MU.status()       // reports gold, market composition, and faculty tenure status
 //        MU.hireScribes()  // hires every Scribe candidate on the market
 //        MU.hireAll()      // hires every candidate on the market
+//        MU.tenureAll()    // tenures every hired professor who isn't tenured yet
 //
-// Both hire commands borrow from the Merchant Houses automatically if gold
-// on hand isn't enough to cover the next hire's up-front cost.
+// All three action commands borrow from the Merchant Houses automatically if
+// gold on hand isn't enough to cover the next action's up-front cost.
 
 (function () {
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -54,7 +56,13 @@
   }
 
   function rowName(row) {
-    return row.querySelector('.min-w-0.flex-1 > div')?.textContent?.trim() || '(unnamed candidate)';
+    const el = row.querySelector('.min-w-0.flex-1 > div');
+    if (!el) return '(unnamed)';
+    // Strip badge spans (e.g. the "until year N" contract badge) so the name
+    // doesn't come back glued to whatever text sits next to it.
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll('span').forEach((s) => s.remove());
+    return clone.textContent.trim() || '(unnamed)';
   }
 
   function rowIsScribe(row) {
@@ -149,23 +157,102 @@
     return hired;
   }
 
+  function getFacultyRows() {
+    const section = findSectionByHeading('Faculty');
+    if (!section) throw new Error('Could not find the "Faculty" section on this page.');
+    const rows = Array.from(section.querySelectorAll(':scope > div.p-4 > div'));
+    return rows.filter((row) => row.querySelector('button'));
+  }
+
+  // The game disables/removes a professor's Tenure button once they're
+  // tenured (tenure is permanent, per its own tooltip), so an enabled
+  // Tenure button is what marks a row as still needing tenure.
+  function rowNeedsTenure(row) {
+    const btn = findButtonByText(row, 'Tenure');
+    return !!btn && !btn.disabled;
+  }
+
+  function parseCostFromText(text) {
+    const match = String(text || '').match(/([\d,]+)g/);
+    return match ? parseNumber(match[1]) : 0;
+  }
+
+  function rowTenureCost(row) {
+    const btn = findButtonByText(row, 'Tenure');
+    if (!btn) return 0;
+    return parseCostFromText(btn.textContent) || parseCostFromText(btn.title) || 0;
+  }
+
+  async function tenureRow(row) {
+    const btn = findButtonByText(row, 'Tenure');
+    if (!btn || btn.disabled) return false;
+    await ensureFunds(rowTenureCost(row));
+    btn.click();
+    await wait(500);
+    return true;
+  }
+
+  async function tenureAll() {
+    let tenured = 0;
+    for (let i = 0; i < 50; i++) {
+      const row = getFacultyRows().filter(rowNeedsTenure)[0];
+      if (!row) break;
+      const name = rowName(row);
+      try {
+        const ok = await tenureRow(row);
+        if (!ok) {
+          console.warn(`[MU] Skipping ${name} — tenure button unavailable.`);
+          break;
+        }
+        console.log(`[MU] Tenured ${name}.`);
+        tenured++;
+      } catch (err) {
+        console.warn(`[MU] Stopped before tenuring ${name}: ${err.message}`);
+        break;
+      }
+    }
+    console.log(`[MU] Done. Tenured ${tenured} professor(s).`);
+    return tenured;
+  }
+
   const MU = window.MU || {};
 
   MU.status = () => {
     const gold = getGold();
-    const rows = getMarketRows();
-    const scribes = rows.filter(rowIsScribe);
+    const marketRows = getMarketRows();
+    const scribes = marketRows.filter(rowIsScribe);
     console.log(`[MU] Gold: ${gold}g`);
-    console.log(`[MU] On the market: ${rows.length} candidate(s), ${scribes.length} Scribe(s).`);
-    rows.forEach((row) => {
+    console.log(`[MU] On the market: ${marketRows.length} candidate(s), ${scribes.length} Scribe(s).`);
+    marketRows.forEach((row) => {
       console.log(`  ${rowIsScribe(row) ? '★' : ' '} ${rowName(row)} — ${rowHireCost(row)}g to bring in`);
     });
-    return { gold, candidates: rows.length, scribes: scribes.length };
+
+    let facultyRows = [];
+    let untenured = [];
+    try {
+      facultyRows = getFacultyRows();
+      untenured = facultyRows.filter(rowNeedsTenure);
+      console.log(`[MU] Faculty: ${facultyRows.length} on the books, ${untenured.length} not yet tenured.`);
+      untenured.forEach((row) => {
+        console.log(`  ☐ ${rowName(row)} — tenure cost ${rowTenureCost(row)}g`);
+      });
+    } catch (err) {
+      console.warn(`[MU] ${err.message}`);
+    }
+
+    return {
+      gold,
+      candidates: marketRows.length,
+      scribes: scribes.length,
+      faculty: facultyRows.length,
+      untenured: untenured.length,
+    };
   };
 
   MU.hireScribes = () => hireMatching(rowIsScribe);
   MU.hireAll = () => hireMatching(() => true);
+  MU.tenureAll = () => tenureAll();
 
   window.MU = MU;
-  console.log('[MU] Loaded. Try MU.status(), MU.hireScribes(), or MU.hireAll().');
+  console.log('[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), or MU.tenureAll().');
 })();
