@@ -22,7 +22,7 @@ Action page.
    - `MU.hireScribes()` — hires every candidate on the market with the Scribe attribute.
    - `MU.hireAll()` — hires every candidate on the market.
    - `MU.tenureAll()` — tenures every hired professor who isn't tenured yet.
-   - `MU.passAll()` — passes on every remaining candidate on the market, faster than the built-in "Pass over all" button.
+   - `MU.passAll()` — passes on every remaining non-Scribe candidate on the market (leaves Scribes for `MU.hireScribes()`), faster than the built-in "Pass over all" button.
 
 The hire/tenure commands check your gold before each action and
 automatically borrow from the Merchant Houses if you're short. Passing is

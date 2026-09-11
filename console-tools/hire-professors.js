@@ -11,13 +11,13 @@
 //        MU.hireScribes()  // hires every Scribe candidate on the market
 //        MU.hireAll()      // hires every candidate on the market
 //        MU.tenureAll()    // tenures every hired professor who isn't tenured yet
-//        MU.passAll()      // passes on every remaining candidate on the market
+//        MU.passAll()      // passes on every non-Scribe candidate on the market
 //
 // The hire/tenure commands borrow from the Merchant Houses automatically if
 // gold on hand isn't enough to cover the next action's up-front cost. Passing
 // costs nothing, so MU.passAll() just runs through the list as fast as the
 // page's own exit animation allows — faster than the built-in "Pass over
-// all" button.
+// all" button. It skips Scribes so it doesn't undo MU.hireScribes().
 
 (function () {
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -175,7 +175,8 @@
   async function passAll() {
     let passed = 0;
     for (let i = 0; i < 200; i++) {
-      const row = getMarketRows()[0];
+      // Scribes are for hiring, not passing — leave them for MU.hireScribes().
+      const row = getMarketRows().filter((r) => !rowIsScribe(r))[0];
       if (!row) break;
       const name = rowName(row);
       const ok = await passRow(row);
