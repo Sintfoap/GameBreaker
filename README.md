@@ -46,6 +46,13 @@ specific effect to actually appear in the page (up to a few seconds)
 instead of a fixed delay, and stops with a console warning if the page
 never reflects a click rather than looping on a stuck row forever.
 
+**Exception:** `MU.setAllRecruit()`/`MU.setResearch()`/`MU.setTeaching()`
+send each standing-order change to the game's backend as a sequenced
+command, with no client-visible signal for when the server has finished
+processing one. Firing them with no gap races that sequencing and can
+500 on the server side, so these three keep a small fixed pacing delay
+(150ms) between changes rather than the goal-based waits used elsewhere.
+
 **Note on `MU.assembleParty()`:** there's no per-student/professor stat
 visible in the page for a mission requirement — only the party's overall
 rating per requirement, shown as e.g. "hopeless" in red. The tool treats

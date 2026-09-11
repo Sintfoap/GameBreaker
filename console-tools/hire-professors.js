@@ -458,15 +458,22 @@
     return true;
   }
 
+  // Standing-order changes aren't purely local state: each one is sent to
+  // the game's backend as a sequenced command (command_log). Firing them
+  // back-to-back with no gap races that sequence counter and can 500 the
+  // insert server-side, so unlike the DOM-driven batch actions above,
+  // there's no client-visible "done" signal to poll for here -- a fixed
+  // pacing delay between commands is the correct fix, not a workaround.
+  const STANDING_ORDER_PACING_MS = 150;
+
   async function setAllRecruit() {
     const rows = getStandingOrderRows();
     let changed = 0;
     for (const row of rows) {
-      // setNativeSelectValue sets the DOM value and dispatches "change"
-      // synchronously, so there's nothing else to wait on between rows.
       if (setStandingOrder(row, 'recruit')) {
         console.log(`[MU] Set ${standingOrderName(row)} to recruit.`);
         changed++;
+        await wait(STANDING_ORDER_PACING_MS);
       }
     }
     console.log(`[MU] Done. Set ${changed} of ${rows.length} standing order(s) to recruit.`);
@@ -488,6 +495,7 @@
       if (setStandingOrder(row, value)) {
         console.log(`[MU] Set ${standingOrderName(row)} to ${value}.`);
         changed++;
+        await wait(STANDING_ORDER_PACING_MS);
       }
     }
     console.log(`[MU] Done. Set ${changed} of ${rows.length} standing order(s) to ${value}.`);
