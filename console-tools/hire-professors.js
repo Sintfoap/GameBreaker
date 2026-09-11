@@ -267,7 +267,21 @@
   // The game disables/removes a professor's Tenure button once they're
   // tenured (tenure is permanent, per its own tooltip), so an enabled
   // Tenure button is what marks a row as still needing tenure.
+  // The Tenure button's disabled state lags behind the real game state
+  // when there are many faculty rows and re-renders are slow, so tenure
+  // status is read from the badge next to the professor's name instead:
+  // "until year N" (still on a term contract) vs "tenured" (permanent,
+  // per its own tooltip). Falls back to the button if no badge is found.
+  function facultyBadgeText(row) {
+    const nameEl = row.querySelector('.min-w-0.flex-1 > div');
+    const badge = nameEl ? nameEl.querySelector('span') : null;
+    return badge ? badge.textContent.trim() : '';
+  }
+
   function rowNeedsTenure(row) {
+    const badge = facultyBadgeText(row);
+    if (/tenured/i.test(badge)) return false;
+    if (/until year/i.test(badge)) return true;
     const btn = findButtonByText(row, 'Tenure');
     return !!btn && !btn.disabled;
   }
@@ -284,13 +298,36 @@
   }
 
   async function tenureRow(row) {
-    const btn = findButtonByText(row, 'Tenure');
+    // Re-look-up by name on every poll rather than trusting the held
+    // node: if the Faculty list re-renders wholesale under load, the
+    // original row node can end up detached and frozen, which would
+    // otherwise make every check below see stale content forever.
+    const name = rowName(row);
+    const findFresh = () => getFacultyRows().find((r) => rowName(r) === name);
+
+    const ready = await waitForCondition(() => {
+      const r = findFresh();
+      const btn = r && findButtonByText(r, 'Tenure');
+      return !!btn && !btn.disabled;
+    }, { timeout: 5000, interval: 100 });
+    if (!ready) return 'unavailable';
+
+    const beforeFunds = findFresh();
+    if (!beforeFunds) return 'unavailable';
+    await ensureFunds(rowTenureCost(beforeFunds));
+
+    const freshRow = findFresh();
+    const btn = freshRow && findButtonByText(freshRow, 'Tenure');
     if (!btn || btn.disabled) return 'unavailable';
-    await ensureFunds(rowTenureCost(row));
     btn.click();
+
     // Tenure doesn't remove the row (the professor stays in Faculty) --
-    // the goal here is the row's own Tenure button going away/disabling.
-    const cleared = await waitForCondition(() => !rowNeedsTenure(row), { timeout: 3000, interval: 50 });
+    // the goal here is the badge switching from "until year N" to
+    // "tenured", checked on a freshly looked-up row each poll.
+    const cleared = await waitForCondition(() => {
+      const r = findFresh();
+      return !!r && !rowNeedsTenure(r);
+    }, { timeout: 5000, interval: 100 });
     return cleared ? 'ok' : 'stuck';
   }
 
