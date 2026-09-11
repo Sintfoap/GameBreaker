@@ -334,19 +334,26 @@
   // No item cap: keeps going until no faculty row still needs tenure.
   async function tenureAll() {
     let tenured = 0;
+    // A professor whose Tenure button won't cooperate (or whose badge
+    // won't update) is skipped, not treated as a reason to stop -- only a
+    // funds error (a global constraint that will recur for everyone else
+    // too) ends the run early.
+    const skipped = new Set();
     while (true) {
-      const row = getFacultyRows().filter(rowNeedsTenure)[0];
+      const row = getFacultyRows().filter((r) => rowNeedsTenure(r) && !skipped.has(rowName(r)))[0];
       if (!row) break;
       const name = rowName(row);
       try {
         const result = await tenureRow(row);
         if (result === 'unavailable') {
           console.warn(`[MU] Skipping ${name} — tenure button unavailable.`);
-          break;
+          skipped.add(name);
+          continue;
         }
         if (result === 'stuck') {
-          console.warn(`[MU] Stopped — ${name}'s tenure status didn't update; the page may be slow to update.`);
-          break;
+          console.warn(`[MU] Skipping ${name} — tenure status didn't update; the page may be slow to update.`);
+          skipped.add(name);
+          continue;
         }
         console.log(`[MU] Tenured ${name}.`);
         tenured++;
@@ -354,6 +361,9 @@
         console.warn(`[MU] Stopped before tenuring ${name}: ${err.message}`);
         break;
       }
+    }
+    if (skipped.size > 0) {
+      console.warn(`[MU] Skipped ${skipped.size} professor(s): ${Array.from(skipped).join(', ')}.`);
     }
     console.log(`[MU] Done. Tenured ${tenured} professor(s).`);
     return tenured;
