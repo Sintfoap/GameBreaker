@@ -21,6 +21,7 @@
 //        MU.setResearch(f)    // sets a fraction f (0-1) of professors to "research"; MU.setResearch(1) for all
 //        MU.setTeaching(f)    // sets a fraction f (0-1) of non-researching professors to "teach"
 //        MU.stockUpTo(level)  // buys each material in "Stores and stock" until its quantity reaches level
+//        MU.sellAllRelics()   // sells every finished relic via the API directly, in batches of 200
 //        MU.assembleParty()   // builds a party (up to 7 students, up to 4 escorts) for the selected commission
 //        MU.repairAll()       // repairs every building in "Capital projects" with a non-zero repair cost
 //        MU.declareScribes()  // sets every undeclared student's tradition straight to Scribe
@@ -649,6 +650,76 @@
     return purchases;
   }
 
+  function getRelicCount() {
+    const section = findSectionByHeading('Stores and stock');
+    if (!section) throw new Error('Could not find the "Stores and stock" section on this page.');
+    const label = Array.from(section.querySelectorAll('div')).find(
+      (el) => el.children.length === 0 && el.textContent.trim() === 'Finished relics'
+    );
+    if (!label || !label.nextElementSibling) {
+      throw new Error('Could not find the "Finished relics" count on this page.');
+    }
+    return parseNumber(label.nextElementSibling.querySelector('span')?.textContent);
+  }
+
+  // Extracted from the page URL rather than hardcoded, since it's specific
+  // to whoever's save is loaded -- callers can still pass one explicitly
+  // (MU.sellAllRelics(saveId)) if it's ever not in the URL.
+  function findSaveIdInUrl() {
+    const match = window.location.href.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    return match ? match[0] : null;
+  }
+
+  // The "Sell all" button posts this same command but the server 500s past
+  // 200 relics in one request -- this calls the API directly in batches of
+  // at most 200 instead. Bypasses the UI entirely, so the on-page relic
+  // count and gold total may not refresh until the next click or reload;
+  // rely on the console log for what actually sold, not the page.
+  async function sellRelicsBatch(saveId, count) {
+    const res = await fetch(`https://hooks.rhysfuller.com/api/saves/${saveId}/command`, {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: { type: 'sell_relics', count } }),
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      throw new Error(`sell_relics request failed: ${res.status} ${res.statusText}`);
+    }
+  }
+
+  // Reads the relic count once up front and works through it in batches of
+  // 200 from that fixed total -- it doesn't re-read the page between
+  // batches (the DOM may not reflect a sale that bypassed the UI), so any
+  // relics produced mid-run aren't included; call it again to catch those.
+  async function sellAllRelics(saveId) {
+    const id = saveId || findSaveIdInUrl();
+    if (!id) {
+      throw new Error(
+        'Could not find your save ID in the page URL. Pass it explicitly: ' +
+          'MU.sellAllRelics("your-save-id") (the UUID from the "saves/<id>/command" URL in the Network tab).'
+      );
+    }
+
+    let remaining = getRelicCount();
+    const total = remaining;
+    if (total <= 0) {
+      console.log('[MU] No relics to sell.');
+      return 0;
+    }
+
+    let sold = 0;
+    while (remaining > 0) {
+      const batch = Math.min(remaining, 200);
+      await sellRelicsBatch(id, batch);
+      sold += batch;
+      remaining -= batch;
+      console.log(`[MU] Sold ${batch} relic(s) (${sold}/${total}).`);
+      if (remaining > 0) await wait(STANDING_ORDER_PACING_MS);
+    }
+    console.log(`[MU] Done. Sold ${sold} relic(s).`);
+    return sold;
+  }
+
   // "Send a party": builds a mission party using the game's own live
   // feedback as the source of truth, since individual student/professor
   // capability isn't exposed anywhere in the DOM — only the party's
@@ -1106,6 +1177,7 @@
   MU.setResearch = (fraction = 1) => setResearch(fraction);
   MU.setTeaching = (fraction = 1) => setTeaching(fraction);
   MU.stockUpTo = (target) => stockUpTo(target);
+  MU.sellAllRelics = (saveId) => sellAllRelics(saveId);
   MU.assembleParty = (opts) => assembleParty(opts || {});
   MU.repairAll = () => repairAll();
   MU.declareScribes = () => declareScribes();
@@ -1114,6 +1186,6 @@
 
   window.MU = MU;
   console.log(
-    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.setTeaching(fraction), MU.stockUpTo(level), MU.assembleParty(), MU.repairAll(), MU.declareScribes(), MU.runActionPage() (hireScribes -> passAll -> tenureAll -> repairAll), or MU.runTermPage() (graduateYear6 -> propose schedule -> declare by aptitude -> open the week).'
+    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.setTeaching(fraction), MU.stockUpTo(level), MU.sellAllRelics(), MU.assembleParty(), MU.repairAll(), MU.declareScribes(), MU.runActionPage() (hireScribes -> passAll -> tenureAll -> repairAll), or MU.runTermPage() (graduateYear6 -> propose schedule -> declare by aptitude -> open the week).'
   );
 })();
