@@ -826,6 +826,30 @@
     return repaired;
   }
 
+  // Runs the four Action-page batch commands back to back: hiring Scribes
+  // off the market, passing on everyone left, tenuring faculty, and
+  // repairing Capital projects. Each step's failure is caught so one
+  // broken step (e.g. a section not found) doesn't stop the others.
+  async function runActionPage() {
+    const steps = [
+      ['hireScribes', () => hireMatching(rowIsScribe)],
+      ['passAll', () => passAll()],
+      ['tenureAll', () => tenureAll()],
+      ['repairAll', () => repairAll()],
+    ];
+    const results = {};
+    for (const [name, fn] of steps) {
+      try {
+        results[name] = await fn();
+      } catch (err) {
+        console.warn(`[MU] ${name} failed: ${err.message}`);
+        results[name] = null;
+      }
+    }
+    console.log('[MU] Action page run complete.', results);
+    return results;
+  }
+
   const MU = window.MU || {};
 
   MU.status = () => {
@@ -871,9 +895,10 @@
   MU.stockUpTo = (target) => stockUpTo(target);
   MU.assembleParty = (opts) => assembleParty(opts || {});
   MU.repairAll = () => repairAll();
+  MU.runActionPage = () => runActionPage();
 
   window.MU = MU;
   console.log(
-    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.setTeaching(fraction), MU.stockUpTo(level), MU.assembleParty(), or MU.repairAll().'
+    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.setTeaching(fraction), MU.stockUpTo(level), MU.assembleParty(), MU.repairAll(), or MU.runActionPage() (hireScribes -> passAll -> tenureAll -> repairAll).'
   );
 })();
