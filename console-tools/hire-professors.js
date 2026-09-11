@@ -1,12 +1,13 @@
 // Magic University console tool: hiring, tenure, graduation, standing
-// orders, and stock purchasing.
+// orders, stock purchasing, and mission parties.
 //
 // Usage:
 //   1. Open the game in your browser, log in, and make sure you're on the
 //      page that has the section you want to act on (the Action page for
 //      "On the market"/"Faculty"/"The treasury"; the Term page for
-//      "Students"; the Today page for "Standing orders" under "The
-//      Chancellor's time"; the Week page for "Stores and stock").
+//      "Students"; the Today page for "Standing orders" and "Send a
+//      party" under "The Chancellor's time"/Commissions; the Week page
+//      for "Stores and stock").
 //   2. Open DevTools (F12) -> Console tab.
 //   3. Paste this entire file and press Enter. You should see "[MU] Loaded.".
 //   4. Run one of:
@@ -19,12 +20,14 @@
 //        MU.setAllRecruit()   // sets every professor's standing order to "recruit"
 //        MU.setResearch(f)    // sets a fraction f (0-1) of professors to "research"; MU.setResearch(1) for all
 //        MU.stockUpTo(level)  // buys each material in "Stores and stock" until its quantity reaches level
+//        MU.assembleParty()   // builds a party (up to 7 students, up to 4 escorts) for the selected commission
 //
 // The hire/tenure/stock commands borrow from the Merchant Houses
 // automatically if gold on hand isn't enough to cover the next action's
 // up-front cost. Passing costs nothing, so MU.passAll() just runs through
 // the list as fast as the page's own exit animation allows — faster than
-// the built-in "Pass over all" button.
+// the built-in "Pass over all" button. MU.assembleParty() builds the team
+// but does not click Send — you review and dispatch it yourself.
 
 (function () {
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -440,6 +443,110 @@
     return purchases;
   }
 
+  // "Send a party": builds a mission party using the game's own live
+  // feedback as the source of truth, since individual student/professor
+  // capability isn't exposed anywhere in the DOM — only the party's
+  // aggregate rating per requirement, which updates as members are
+  // toggled in and out. This treats any rating NOT styled as the "bad"
+  // red (text-ruin-400) or caution (text-warn-400) color as "at least
+  // adequate" — following this app's own color convention elsewhere
+  // (red = shortfall, neutral/green = fine). Adjust ratingMeetsThreshold
+  // if that guess turns out wrong.
+  async function assembleParty({ maxStudents = 7, maxEscorts = 4 } = {}) {
+    const section = findSectionByHeading('Send a party');
+    if (!section) throw new Error('Could not find the "Send a party" section on this page.');
+    if (/no commission selected/i.test(section.textContent)) {
+      throw new Error('No commission is selected — click one in the Commissions list first.');
+    }
+
+    function getCandidateButtons() {
+      const container = section.querySelector('div.max-h-56');
+      if (!container) throw new Error('Could not find the party candidate list.');
+      return Array.from(container.querySelectorAll(':scope > button'));
+    }
+
+    function getEscortButtons() {
+      const label = Array.from(section.querySelectorAll('div')).find(
+        (el) => el.children.length === 0 && el.textContent.trim() === 'Escort'
+      );
+      if (!label || !label.nextElementSibling) return [];
+      return Array.from(label.nextElementSibling.querySelectorAll('button'));
+    }
+
+    function getRequirementRows() {
+      const marker = Array.from(section.querySelectorAll('p')).find(
+        (p) => p.textContent.trim() === 'What they can answer'
+      );
+      return marker ? Array.from(marker.parentElement.querySelectorAll(':scope > div')) : [];
+    }
+
+    function ratingMeetsThreshold(row) {
+      const rating = row.querySelector('span:last-child');
+      if (!rating) return true;
+      return !rating.classList.contains('text-ruin-400') && !rating.classList.contains('text-warn-400');
+    }
+
+    function allRequirementsMet() {
+      const rows = getRequirementRows();
+      return rows.length > 0 && rows.every(ratingMeetsThreshold);
+    }
+
+    function candidateName(btn) {
+      return btn.querySelector('.truncate')?.textContent?.trim() || btn.textContent.trim();
+    }
+
+    async function tryAdd(getButtons, chosen, rejected, cap, label) {
+      if (chosen.length >= cap) return false;
+      const candidates = getButtons().filter(
+        (b) => !chosen.includes(candidateName(b)) && !rejected.has(candidateName(b))
+      );
+      for (const btn of candidates) {
+        const name = candidateName(btn);
+        const before = getRequirementRows().map(ratingMeetsThreshold);
+        btn.click();
+        await wait(300);
+        const after = getRequirementRows().map(ratingMeetsThreshold);
+        const helped = after.some((ok, i) => ok && !before[i]);
+        if (helped) {
+          chosen.push(name);
+          console.log(`[MU] Added ${name} to the party (${label}).`);
+          return true;
+        }
+        btn.click();
+        await wait(300);
+        rejected.add(name);
+      }
+      return false;
+    }
+
+    const students = [];
+    const escorts = [];
+    const rejectedStudents = new Set();
+    const rejectedEscorts = new Set();
+
+    if (allRequirementsMet()) {
+      console.log('[MU] Requirements are already met with the current party.');
+      return { students, escorts };
+    }
+
+    let progressed = true;
+    while (progressed && !allRequirementsMet()) {
+      progressed = await tryAdd(getCandidateButtons, students, rejectedStudents, maxStudents, 'student');
+      if (!progressed) {
+        progressed = await tryAdd(getEscortButtons, escorts, rejectedEscorts, maxEscorts, 'escort');
+      }
+    }
+
+    if (allRequirementsMet()) {
+      console.log(`[MU] Done. Party meets every requirement: ${students.length} student(s), ${escorts.length} escort(s).`);
+    } else {
+      console.warn(
+        `[MU] Stopped short: ${students.length} student(s) and ${escorts.length} escort(s) selected, but some requirements are still below adequate (caps reached or no candidate helps further).`
+      );
+    }
+    return { students, escorts };
+  }
+
   const MU = window.MU || {};
 
   MU.status = () => {
@@ -482,9 +589,10 @@
   MU.setAllRecruit = () => setAllRecruit();
   MU.setResearch = (fraction = 1) => setResearch(fraction);
   MU.stockUpTo = (target) => stockUpTo(target);
+  MU.assembleParty = (opts) => assembleParty(opts || {});
 
   window.MU = MU;
   console.log(
-    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), or MU.stockUpTo(level).'
+    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.stockUpTo(level), or MU.assembleParty().'
   );
 })();

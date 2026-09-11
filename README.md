@@ -12,10 +12,11 @@ DevTools console — they act on the page using your own logged-in session.
 
 Automates the "On the market" hiring section and Faculty tenure on the
 Action page, graduating students from the Term page, professor standing
-orders from the Today page, and material purchasing from the Week page.
+orders and mission parties from the Today page, and material purchasing
+from the Week page.
 
 **Usage:**
-1. Open the game, log in, and go to the relevant page (Action page for hiring/tenure/passing, Term page for graduating, Today page for standing orders, Week page for stock purchasing).
+1. Open the game, log in, and go to the relevant page (Action page for hiring/tenure/passing, Term page for graduating, Today page for standing orders/parties, Week page for stock purchasing).
 2. Open DevTools (F12) → Console tab.
 3. Paste the entire contents of `console-tools/hire-professors.js` and press Enter.
 4. Run one of:
@@ -28,8 +29,17 @@ orders from the Today page, and material purchasing from the Week page.
    - `MU.setAllRecruit()` — sets every professor's standing order to "recruit" (Today page, under "The Chancellor's time").
    - `MU.setResearch(fraction)` — sets that fraction of professors (0-1) to "research"; `MU.setResearch(0.1)` for a tenth, `MU.setResearch(1)` for everyone.
    - `MU.stockUpTo(level)` — buys each material in "Stores and stock" (Week page) until its quantity reaches `level`.
+   - `MU.assembleParty()` — with a commission selected in "Send a party" (Today page), greedily adds students (up to 7) and then escorts/professors (up to 4) until every requirement rating is at least "adequate," using the game's own live rating as feedback. It builds the team but does **not** click Send.
 
 The hire/tenure/stock commands check your gold before each action and
 automatically borrow from the Merchant Houses if you're short. Passing is
 free, so `MU.passAll()` just runs through the list as fast as the page's
 own exit animation allows.
+
+**Note on `MU.assembleParty()`:** there's no per-student/professor stat
+visible in the page for a mission requirement — only the party's overall
+rating per requirement, shown as e.g. "hopeless" in red. The tool treats
+anything *not* styled that red/warning color as "adequate or better,"
+following this app's own color convention elsewhere. If that guess is
+wrong for this page, let me know what an adequate-or-better rating
+actually looks like and the threshold check can be corrected.
