@@ -316,22 +316,37 @@
     return match ? Number(match[1]) : null;
   }
 
+  // Graduating a student away on a commission shows a toast instead of
+  // actually removing the row -- without checking for it, the loop below
+  // would just keep re-selecting that same student forever.
+  function isAwayOnCommissionToastShown() {
+    const toast = document.querySelector('button.fixed.bottom-16');
+    return !!toast && /away on a commission/i.test(toast.textContent);
+  }
+
   async function graduateRow(row) {
     const btn = findButtonStartingWith(row, 'Graduate');
-    if (!btn || btn.disabled) return false;
+    if (!btn || btn.disabled) return 'unavailable';
     btn.click();
     await wait(400);
-    return true;
+    if (isAwayOnCommissionToastShown()) return 'blocked';
+    return 'ok';
   }
 
   async function graduateYear(targetYear) {
     let graduated = 0;
+    const skipped = new Set();
     for (let i = 0; i < 200; i++) {
-      const row = getStudentRows().find((r) => studentYear(r) === targetYear);
+      const row = getStudentRows().find((r) => studentYear(r) === targetYear && !skipped.has(studentName(r)));
       if (!row) break;
       const name = studentName(row);
-      const ok = await graduateRow(row);
-      if (!ok) {
+      const result = await graduateRow(row);
+      if (result === 'blocked') {
+        console.warn(`[MU] Skipping ${name} — away on a commission.`);
+        skipped.add(name);
+        continue;
+      }
+      if (result === 'unavailable') {
         console.warn(`[MU] Skipping ${name} — graduate button unavailable.`);
         break;
       }
