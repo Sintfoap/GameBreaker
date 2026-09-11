@@ -38,6 +38,14 @@ and automatically borrow from the Merchant Houses if you're short.
 Passing is free, so `MU.passAll()` just runs through the list as fast as
 the page's own exit animation allows.
 
+None of the batch commands (`hireAll`/`hireScribes`/`tenureAll`/`passAll`/
+`graduateYear6`/`stockUpTo`/`repairAll`) cap how many items they process —
+each keeps going until nothing left matches its goal (empty list, cleared
+cost, cleared tenure flag, etc). Between actions, each waits for that
+specific effect to actually appear in the page (up to a few seconds)
+instead of a fixed delay, and stops with a console warning if the page
+never reflects a click rather than looping on a stuck row forever.
+
 **Note on `MU.assembleParty()`:** there's no per-student/professor stat
 visible in the page for a mission requirement — only the party's overall
 rating per requirement, shown as e.g. "hopeless" in red. The tool treats

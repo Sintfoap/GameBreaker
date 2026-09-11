@@ -30,6 +30,15 @@
 // the list as fast as the page's own exit animation allows — faster than
 // the built-in "Pass over all" button. MU.assembleParty() builds the team
 // but does not click Send — you review and dispatch it yourself.
+//
+// None of the batch commands (hireAll/hireScribes/tenureAll/passAll/
+// graduateYear6/stockUpTo/repairAll) cap how many items they'll process --
+// each just keeps going until nothing left matches its goal (an empty
+// list, a cleared cost, a cleared tenure flag, etc). Between actions, each
+// one waits for that specific effect to actually show up in the DOM
+// (up to a few seconds) rather than a fixed delay, and gives up with a
+// console warning if the page never reflects the click, instead of
+// looping on a stuck row forever.
 
 (function () {
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -144,10 +153,14 @@
     const step = Number(input.step) || 1;
     const rounded = Math.ceil(target / step) * step;
 
+    const goldBefore = getGold();
     setNativeValue(input, String(rounded));
-    await wait(150);
+    await waitForCondition(() => input.value === String(rounded), { timeout: 500, interval: 20 });
     borrowBtn.click();
-    await wait(400);
+    const borrowed = await waitForCondition(() => getGold() > goldBefore, { timeout: 3000, interval: 50 });
+    if (!borrowed) {
+      throw new Error('Borrowing did not appear to add gold; the page may be slow to update.');
+    }
     console.log(`[MU] Borrowed ${rounded}g from the Merchant Houses.`);
   }
 
@@ -164,23 +177,31 @@
 
   async function hireRow(row) {
     const hireBtn = findButtonByText(row, 'Hire');
-    if (!hireBtn || hireBtn.disabled) return false;
+    if (!hireBtn || hireBtn.disabled) return 'unavailable';
     await ensureFunds(rowHireCost(row));
     hireBtn.click();
-    await wait(500);
-    return true;
+    const cleared = await waitForCondition(() => !getMarketRows().includes(row), { timeout: 3000, interval: 50 });
+    return cleared ? 'ok' : 'stuck';
   }
 
+  // No item cap: keeps going until no candidate matches the predicate
+  // anymore, rather than stopping after an arbitrary count. A row that
+  // doesn't clear after a click ("stuck") ends the run instead of looping
+  // on it forever.
   async function hireMatching(predicate) {
     let hired = 0;
-    for (let i = 0; i < 50; i++) {
+    while (true) {
       const row = getMarketRows().filter(predicate)[0];
       if (!row) break;
       const name = rowName(row);
       try {
-        const ok = await hireRow(row);
-        if (!ok) {
+        const result = await hireRow(row);
+        if (result === 'unavailable') {
           console.warn(`[MU] Skipping ${name} — hire button unavailable.`);
+          break;
+        }
+        if (result === 'stuck') {
+          console.warn(`[MU] Stopped — ${name} didn't leave the market after hiring; the page may be slow to update.`);
           break;
         }
         console.log(`[MU] Hired ${name}.`);
@@ -201,7 +222,7 @@
       const btn = findButtonByText(row, 'Pass');
       return !!btn && !btn.disabled;
     }, { timeout: 500, interval: 50 });
-    if (!ready) return false;
+    if (!ready) return 'unavailable';
 
     findButtonByText(row, 'Pass').click();
 
@@ -209,19 +230,24 @@
     // the hire/tenure loops -- but instead of guessing a fixed delay for
     // the exit animation (which caused false "done" reads when a re-render
     // ran long), wait until this exact row actually leaves the market list.
-    await waitForCondition(() => !getMarketRows().includes(row), { timeout: 3000, interval: 50 });
-    return true;
+    const cleared = await waitForCondition(() => !getMarketRows().includes(row), { timeout: 3000, interval: 50 });
+    return cleared ? 'ok' : 'stuck';
   }
 
+  // No item cap: keeps passing until the market list is actually empty.
   async function passAll() {
     let passed = 0;
-    for (let i = 0; i < 200; i++) {
+    while (true) {
       const row = getMarketRows()[0];
       if (!row) break;
       const name = rowName(row);
-      const ok = await passRow(row);
-      if (!ok) {
+      const result = await passRow(row);
+      if (result === 'unavailable') {
         console.warn(`[MU] Skipping ${name} — pass button unavailable.`);
+        break;
+      }
+      if (result === 'stuck') {
+        console.warn(`[MU] Stopped — ${name} didn't leave the market after passing; the page may be slow to update.`);
         break;
       }
       console.log(`[MU] Passed on ${name}.`);
@@ -259,23 +285,30 @@
 
   async function tenureRow(row) {
     const btn = findButtonByText(row, 'Tenure');
-    if (!btn || btn.disabled) return false;
+    if (!btn || btn.disabled) return 'unavailable';
     await ensureFunds(rowTenureCost(row));
     btn.click();
-    await wait(500);
-    return true;
+    // Tenure doesn't remove the row (the professor stays in Faculty) --
+    // the goal here is the row's own Tenure button going away/disabling.
+    const cleared = await waitForCondition(() => !rowNeedsTenure(row), { timeout: 3000, interval: 50 });
+    return cleared ? 'ok' : 'stuck';
   }
 
+  // No item cap: keeps going until no faculty row still needs tenure.
   async function tenureAll() {
     let tenured = 0;
-    for (let i = 0; i < 50; i++) {
+    while (true) {
       const row = getFacultyRows().filter(rowNeedsTenure)[0];
       if (!row) break;
       const name = rowName(row);
       try {
-        const ok = await tenureRow(row);
-        if (!ok) {
+        const result = await tenureRow(row);
+        if (result === 'unavailable') {
           console.warn(`[MU] Skipping ${name} — tenure button unavailable.`);
+          break;
+        }
+        if (result === 'stuck') {
+          console.warn(`[MU] Stopped — ${name}'s tenure status didn't update; the page may be slow to update.`);
           break;
         }
         console.log(`[MU] Tenured ${name}.`);
@@ -328,15 +361,21 @@
     const btn = findButtonStartingWith(row, 'Graduate');
     if (!btn || btn.disabled) return 'unavailable';
     btn.click();
-    await wait(400);
+    const settled = await waitForCondition(
+      () => isAwayOnCommissionToastShown() || !getStudentRows().includes(row),
+      { timeout: 3000, interval: 50 }
+    );
+    if (!settled) return 'stuck';
     if (isAwayOnCommissionToastShown()) return 'blocked';
     return 'ok';
   }
 
+  // No item cap: keeps going until no yr-N student remains (skipping, not
+  // retrying, students blocked by a commission).
   async function graduateYear(targetYear) {
     let graduated = 0;
     const skipped = new Set();
-    for (let i = 0; i < 200; i++) {
+    while (true) {
       const row = getStudentRows().find((r) => studentYear(r) === targetYear && !skipped.has(studentName(r)));
       if (!row) break;
       const name = studentName(row);
@@ -348,6 +387,10 @@
       }
       if (result === 'unavailable') {
         console.warn(`[MU] Skipping ${name} — graduate button unavailable.`);
+        break;
+      }
+      if (result === 'stuck') {
+        console.warn(`[MU] Stopped — ${name} didn't graduate or show a reason why; the page may be slow to update.`);
         break;
       }
       console.log(`[MU] Graduated ${name} (yr ${targetYear}).`);
@@ -382,10 +425,11 @@
     const rows = getStandingOrderRows();
     let changed = 0;
     for (const row of rows) {
+      // setNativeSelectValue sets the DOM value and dispatches "change"
+      // synchronously, so there's nothing else to wait on between rows.
       if (setStandingOrder(row, 'recruit')) {
         console.log(`[MU] Set ${standingOrderName(row)} to recruit.`);
         changed++;
-        await wait(100);
       }
     }
     console.log(`[MU] Done. Set ${changed} of ${rows.length} standing order(s) to recruit.`);
@@ -407,7 +451,6 @@
       if (setStandingOrder(row, value)) {
         console.log(`[MU] Set ${standingOrderName(row)} to ${value}.`);
         changed++;
-        await wait(100);
       }
     }
     console.log(`[MU] Done. Set ${changed} of ${rows.length} standing order(s) to ${value}.`);
@@ -455,26 +498,37 @@
 
   async function buyMaterialRow(row, name) {
     const buy = materialBuyInfo(row);
-    if (!buy || buy.button.disabled) return false;
+    if (!buy || buy.button.disabled) return 'unavailable';
     await ensureFunds(buy.cost);
+    const before = materialAmount(row);
     buy.button.click();
     console.log(`[MU] Bought +${buy.quantity} ${name} for ${buy.cost}g.`);
-    await wait(400);
-    return true;
+    const changed = await waitForCondition(() => {
+      const current = getMaterialRows().find((r) => materialName(r) === name);
+      return !!current && materialAmount(current) > before;
+    }, { timeout: 3000, interval: 50 });
+    return changed ? 'ok' : 'stuck';
   }
 
+  // No purchase-count cap per material: keeps buying until its quantity
+  // reaches the target, rather than stopping after an arbitrary number of
+  // purchases.
   async function stockUpTo(target) {
     const names = getMaterialRows().map(materialName);
     let purchases = 0;
     for (const name of names) {
-      for (let i = 0; i < 200; i++) {
+      while (true) {
         const row = getMaterialRows().find((r) => materialName(r) === name);
         if (!row) break;
         if (materialAmount(row) >= target) break;
         try {
-          const ok = await buyMaterialRow(row, name);
-          if (!ok) {
+          const result = await buyMaterialRow(row, name);
+          if (result === 'unavailable') {
             console.warn(`[MU] Stopped buying ${name} — buy button unavailable.`);
+            break;
+          }
+          if (result === 'stuck') {
+            console.warn(`[MU] Stopped buying ${name} — quantity didn't increase after purchase; the page may be slow to update.`);
             break;
           }
           purchases++;
@@ -540,6 +594,30 @@
       return btn.querySelector('.truncate')?.textContent?.trim() || btn.textContent.trim();
     }
 
+    // There's no clean boolean condition for "did adding this candidate
+    // help" beyond re-reading the ratings, so this waits for the panel to
+    // actually re-render (a DOM mutation) instead of guessing a fixed
+    // delay -- returns as soon as something changes, or after timeout if
+    // the click genuinely had no visible effect.
+    function waitForPartyUpdate(timeout = 1000) {
+      return new Promise((resolve) => {
+        let settled = false;
+        const observer = new MutationObserver(() => {
+          if (settled) return;
+          settled = true;
+          observer.disconnect();
+          resolve();
+        });
+        observer.observe(section, { childList: true, subtree: true, characterData: true, attributes: true });
+        setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          observer.disconnect();
+          resolve();
+        }, timeout);
+      });
+    }
+
     async function tryAdd(getButtons, chosen, rejected, cap, label) {
       if (chosen.length >= cap) return false;
       const candidates = getButtons().filter(
@@ -549,7 +627,7 @@
         const name = candidateName(btn);
         const before = getRequirementRows().map(ratingMeetsThreshold);
         btn.click();
-        await wait(300);
+        await waitForPartyUpdate();
         const after = getRequirementRows().map(ratingMeetsThreshold);
         const helped = after.some((ok, i) => ok && !before[i]);
         if (helped) {
@@ -558,7 +636,7 @@
           return true;
         }
         btn.click();
-        await wait(300);
+        await waitForPartyUpdate();
         rejected.add(name);
       }
       return false;
@@ -617,19 +695,20 @@
 
   async function repairRow(row, name) {
     const btn = buildingRepairButton(row);
-    if (!btn || btn.disabled) return false;
+    if (!btn || btn.disabled) return 'unavailable';
     const cost = buildingRepairCost(row);
-    if (cost <= 0) return false;
+    if (cost <= 0) return 'unavailable';
     await ensureFunds(cost);
     btn.click();
     console.log(`[MU] Repaired ${name} for ${cost}g.`);
-    await wait(500);
-    return true;
+    const cleared = await waitForCondition(() => buildingRepairCost(row) <= 0, { timeout: 3000, interval: 50 });
+    return cleared ? 'ok' : 'stuck';
   }
 
+  // No item cap: keeps going until no building has a non-zero repair cost.
   async function repairAll() {
     let repaired = 0;
-    for (let i = 0; i < 100; i++) {
+    while (true) {
       const row = getBuildingRows().find((r) => {
         const btn = buildingRepairButton(r);
         return btn && !btn.disabled && buildingRepairCost(r) > 0;
@@ -637,9 +716,13 @@
       if (!row) break;
       const name = buildingName(row);
       try {
-        const ok = await repairRow(row, name);
-        if (!ok) {
+        const result = await repairRow(row, name);
+        if (result === 'unavailable') {
           console.warn(`[MU] Skipping ${name} — repair button unavailable.`);
+          break;
+        }
+        if (result === 'stuck') {
+          console.warn(`[MU] Stopped — ${name}'s repair cost didn't clear; the page may be slow to update.`);
           break;
         }
         repaired++;
