@@ -877,6 +877,11 @@
     return changed ? 'ok' : 'stuck';
   }
 
+  // Generous ceiling for how long declaring hundreds of students by
+  // aptitude can take server-side -- a guess, since there's no progress
+  // readout to calibrate against, just this count ticking down.
+  const DECLARE_BY_APTITUDE_TIMEOUT_MS = 5 * 60 * 1000;
+
   // The button's label includes a student count ("Declare 585 by
   // aptitude") that changes every time, so it's matched by its fixed
   // prefix instead of an exact string.
@@ -902,8 +907,25 @@
     }
     if (!btn || btn.disabled) return 'unavailable';
     btn.click();
-    const changed = await waitForMutation(section);
-    return changed ? 'ok' : 'stuck';
+
+    // With hundreds of students this can take a good while to work
+    // through server-side, so this idles on the actual goal -- no
+    // undeclared students left -- instead of the first DOM mutation
+    // (which fires almost immediately and says nothing about whether the
+    // job is actually done). Logs progress periodically since silence for
+    // a minute-plus otherwise looks like it hung.
+    const remaining = () => getStudentRows().filter(studentIsUndeclared).length;
+    const start = Date.now();
+    let lastLog = start;
+    while (remaining() > 0) {
+      if (Date.now() - start > DECLARE_BY_APTITUDE_TIMEOUT_MS) return 'stuck';
+      if (Date.now() - lastLog >= 5000) {
+        console.log(`[MU] Still declaring by aptitude — ${remaining()} student(s) left...`);
+        lastLog = Date.now();
+      }
+      await wait(250);
+    }
+    return 'ok';
   }
 
   // Manual fallback for declareByAptitude: sets every undeclared student's
@@ -935,7 +957,19 @@
         (b) => b.textContent.trim() === 'Open the week' && !b.disabled
       );
     }
-    const btn = enabledButton();
+    let btn = enabledButton();
+    if (!btn) {
+      // Can take a moment to flip enabled right after declareByAptitude
+      // finishes settling, so this gives it a short grace period before
+      // reporting unavailable.
+      await waitForCondition(
+        () => {
+          btn = enabledButton();
+          return !!btn;
+        },
+        { timeout: 5000, interval: 100 }
+      );
+    }
     if (!btn) return 'unavailable';
     btn.click();
     const cleared = await waitForCondition(() => !enabledButton(), { timeout: 5000, interval: 100 });
@@ -976,7 +1010,7 @@
       if (result === 'unavailable') {
         console.log('[MU] Declare by aptitude isn\'t available right now — skipping.');
       } else if (result === 'stuck') {
-        console.warn('[MU] Declared by aptitude, but the page showed no visible change.');
+        console.warn('[MU] Declare by aptitude still had undeclared students after 5 minutes; giving up.');
       } else {
         console.log('[MU] Declared remaining students by aptitude.');
       }

@@ -64,18 +64,23 @@ following this app's own color convention elsewhere. If that guess is
 wrong for this page, let me know what an adequate-or-better rating
 actually looks like and the threshold check can be corrected.
 
-**Note on `MU.runTermPage()`:** proposing a schedule and declaring by
-aptitude don't clear a row or flip a badge the way the other batch actions
-do, so there's no precise "done" signal to poll for — the tool just waits
-for *some* re-render in the relevant section after each click and moves on.
-"Open the week" appears twice on the page (inline and in the bottom bar);
-whichever copy is enabled gets clicked.
+**Note on `MU.runTermPage()`:** proposing a schedule doesn't clear a row or
+flip a badge the way the other batch actions do, so there's no precise
+"done" signal to poll for — the tool just waits for *some* re-render in
+the Timetable section after clicking and moves on. "Open the week"
+appears twice on the page (inline and in the bottom bar); whichever copy
+is enabled gets clicked, and if neither is enabled yet the tool gives it a
+few seconds to catch up before reporting it unavailable.
 
 "Declare N by aptitude" is only enabled while at least one student's
 tradition dropdown is empty ("undeclared"), and its enabled state can lag
 a moment behind `graduateYear6()`/propose-schedule finishing — so
 `runTermPage()` gives it a few seconds to catch up rather than reporting
-"unavailable" on the first check. If it's still never available (or you'd
-rather skip the game's own aptitude-based choice of tradition entirely),
-call `MU.declareScribes()` instead, which sets every undeclared student's
-dropdown directly to Scribe.
+"unavailable" on the first check. Declaring hundreds of students can then
+take a good while server-side, so once clicked, the tool idles on the
+actual goal — every student's dropdown no longer empty — logging progress
+every few seconds, for up to 5 minutes, before moving on to "Open the
+week." If it's still never available (or you'd rather skip the game's own
+aptitude-based choice of tradition entirely), call `MU.declareScribes()`
+instead, which sets every undeclared student's dropdown directly to
+Scribe.
