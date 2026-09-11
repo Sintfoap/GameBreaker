@@ -11,9 +11,13 @@
 //        MU.hireScribes()  // hires every Scribe candidate on the market
 //        MU.hireAll()      // hires every candidate on the market
 //        MU.tenureAll()    // tenures every hired professor who isn't tenured yet
+//        MU.passAll()      // passes on every remaining candidate on the market
 //
-// All three action commands borrow from the Merchant Houses automatically if
-// gold on hand isn't enough to cover the next action's up-front cost.
+// The hire/tenure commands borrow from the Merchant Houses automatically if
+// gold on hand isn't enough to cover the next action's up-front cost. Passing
+// costs nothing, so MU.passAll() just runs through the list as fast as the
+// page's own exit animation allows — faster than the built-in "Pass over
+// all" button.
 
 (function () {
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -157,6 +161,35 @@
     return hired;
   }
 
+  async function passRow(row) {
+    const passBtn = findButtonByText(row, 'Pass');
+    if (!passBtn || passBtn.disabled) return false;
+    passBtn.click();
+    // No funds check needed for a pass, so this can run much tighter than
+    // the hire/tenure loops — just enough for the row's exit animation to
+    // clear before the next query.
+    await wait(200);
+    return true;
+  }
+
+  async function passAll() {
+    let passed = 0;
+    for (let i = 0; i < 200; i++) {
+      const row = getMarketRows()[0];
+      if (!row) break;
+      const name = rowName(row);
+      const ok = await passRow(row);
+      if (!ok) {
+        console.warn(`[MU] Skipping ${name} — pass button unavailable.`);
+        break;
+      }
+      console.log(`[MU] Passed on ${name}.`);
+      passed++;
+    }
+    console.log(`[MU] Done. Passed on ${passed} candidate(s).`);
+    return passed;
+  }
+
   function getFacultyRows() {
     const section = findSectionByHeading('Faculty');
     if (!section) throw new Error('Could not find the "Faculty" section on this page.');
@@ -252,7 +285,8 @@
   MU.hireScribes = () => hireMatching(rowIsScribe);
   MU.hireAll = () => hireMatching(() => true);
   MU.tenureAll = () => tenureAll();
+  MU.passAll = () => passAll();
 
   window.MU = MU;
-  console.log('[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), or MU.tenureAll().');
+  console.log('[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), or MU.passAll().');
 })();
