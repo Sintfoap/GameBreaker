@@ -32,6 +32,7 @@ and material purchasing from the Week page.
    - `MU.stockUpTo(level)` — buys each material in "Stores and stock" (Week page) until its quantity reaches `level`.
    - `MU.assembleParty()` — with a commission selected in "Send a party" (Today page), greedily adds students (up to 7) and then escorts/professors (up to 4) until every requirement rating is at least "adequate," using the game's own live rating as feedback. It builds the team but does **not** click Send.
    - `MU.repairAll()` — repairs every building in "Capital projects" (Action page) whose repair cost is non-zero.
+   - `MU.declareScribes()` — sets every undeclared student's tradition dropdown (Students list, Term page) straight to Scribe, no button click involved.
    - `MU.runActionPage()` — runs `hireScribes()`, `passAll()`, `tenureAll()`, and `repairAll()` back to back (Action page). A failure in one step is logged and doesn't stop the rest.
    - `MU.runTermPage()` — runs `graduateYear6()`, then clicks "Propose a schedule," then "Declare N by aptitude" (skipped if that button isn't showing), then "Open the week" (Term page). A failure in one step is logged and doesn't stop the rest.
 
@@ -69,3 +70,12 @@ do, so there's no precise "done" signal to poll for — the tool just waits
 for *some* re-render in the relevant section after each click and moves on.
 "Open the week" appears twice on the page (inline and in the bottom bar);
 whichever copy is enabled gets clicked.
+
+"Declare N by aptitude" is only enabled while at least one student's
+tradition dropdown is empty ("undeclared"), and its enabled state can lag
+a moment behind `graduateYear6()`/propose-schedule finishing — so
+`runTermPage()` gives it a few seconds to catch up rather than reporting
+"unavailable" on the first check. If it's still never available (or you'd
+rather skip the game's own aptitude-based choice of tradition entirely),
+call `MU.declareScribes()` instead, which sets every undeclared student's
+dropdown directly to Scribe.

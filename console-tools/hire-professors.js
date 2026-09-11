@@ -23,6 +23,7 @@
 //        MU.stockUpTo(level)  // buys each material in "Stores and stock" until its quantity reaches level
 //        MU.assembleParty()   // builds a party (up to 7 students, up to 4 escorts) for the selected commission
 //        MU.repairAll()       // repairs every building in "Capital projects" with a non-zero repair cost
+//        MU.declareScribes()  // sets every undeclared student's tradition straight to Scribe
 //        MU.runActionPage()   // runs hireScribes -> passAll -> tenureAll -> repairAll
 //        MU.runTermPage()     // runs graduateYear6 -> propose schedule -> declare by aptitude -> open the week
 //
@@ -432,6 +433,19 @@
     if (!span) return null;
     const match = span.textContent.match(/(\d+)/);
     return match ? Number(match[1]) : null;
+  }
+
+  // Each student row carries its own tradition <select> (mage/druid/
+  // cleric/scribe/warlock/sage, or "" for undeclared) -- this is what
+  // "Declare N by aptitude" bulk-fills, and what a manual override sets
+  // directly.
+  function studentTraditionSelect(row) {
+    return row.querySelector('select');
+  }
+
+  function studentIsUndeclared(row) {
+    const select = studentTraditionSelect(row);
+    return !!select && select.value === '';
   }
 
   // Graduating a student away on a commission shows a toast instead of
@@ -866,14 +880,50 @@
   // The button's label includes a student count ("Declare 585 by
   // aptitude") that changes every time, so it's matched by its fixed
   // prefix instead of an exact string.
+  //
+  // Its enabled state can lag a moment behind a just-finished
+  // graduate/schedule re-render -- reading it once right away produced
+  // false "unavailable" reports even with undeclared students still
+  // sitting there. So when undeclared students exist, this gives the
+  // button a few seconds to catch up before giving up on it.
   async function declareByAptitude() {
     const section = findSectionByHeading('Students');
     if (!section) throw new Error('Could not find the "Students" section on this page.');
-    const btn = findButtonStartingWith(section, 'Declare');
+
+    let btn = findButtonStartingWith(section, 'Declare');
+    if ((!btn || btn.disabled) && getStudentRows().some(studentIsUndeclared)) {
+      await waitForCondition(
+        () => {
+          btn = findButtonStartingWith(section, 'Declare');
+          return !!btn && !btn.disabled;
+        },
+        { timeout: 5000, interval: 100 }
+      );
+    }
     if (!btn || btn.disabled) return 'unavailable';
     btn.click();
     const changed = await waitForMutation(section);
     return changed ? 'ok' : 'stuck';
+  }
+
+  // Manual fallback for declareByAptitude: sets every undeclared student's
+  // tradition select straight to Scribe, sidestepping the "Declare N by
+  // aptitude" button (and its by-aptitude choice of tradition) entirely.
+  // Paced like the standing-order selects, since this is the same
+  // select-driven-backend-command shape and racing it could carry the same
+  // risk (see STANDING_ORDER_PACING_MS above setAllRecruit).
+  async function declareScribes() {
+    const rows = getStudentRows().filter(studentIsUndeclared);
+    let declared = 0;
+    for (const row of rows) {
+      const select = studentTraditionSelect(row);
+      if (!select) continue;
+      setNativeSelectValue(select, 'scribe');
+      declared++;
+      await wait(STANDING_ORDER_PACING_MS);
+    }
+    console.log(`[MU] Done. Declared ${declared} student(s) as Scribe.`);
+    return declared;
   }
 
   // "Open the week" is duplicated in the page (once inline at the end of
@@ -1024,11 +1074,12 @@
   MU.stockUpTo = (target) => stockUpTo(target);
   MU.assembleParty = (opts) => assembleParty(opts || {});
   MU.repairAll = () => repairAll();
+  MU.declareScribes = () => declareScribes();
   MU.runActionPage = () => runActionPage();
   MU.runTermPage = () => runTermPage();
 
   window.MU = MU;
   console.log(
-    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.setTeaching(fraction), MU.stockUpTo(level), MU.assembleParty(), MU.repairAll(), MU.runActionPage() (hireScribes -> passAll -> tenureAll -> repairAll), or MU.runTermPage() (graduateYear6 -> propose schedule -> declare by aptitude -> open the week).'
+    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.setTeaching(fraction), MU.stockUpTo(level), MU.assembleParty(), MU.repairAll(), MU.declareScribes(), MU.runActionPage() (hireScribes -> passAll -> tenureAll -> repairAll), or MU.runTermPage() (graduateYear6 -> propose schedule -> declare by aptitude -> open the week).'
   );
 })();
