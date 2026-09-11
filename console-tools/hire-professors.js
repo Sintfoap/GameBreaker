@@ -34,6 +34,18 @@
 (function () {
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  // Polls fn() instead of waiting a fixed delay, since re-renders after a
+  // click don't always land within a fixed window under load -- returns as
+  // soon as fn() is true, or false if it never becomes true within timeout.
+  async function waitForCondition(fn, { timeout = 3000, interval = 50 } = {}) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      if (fn()) return true;
+      await wait(interval);
+    }
+    return fn();
+  }
+
   function findSectionByHeading(headingText) {
     const heading = Array.from(document.querySelectorAll('h2')).find(
       (el) => el.textContent.trim().toLowerCase() === headingText.toLowerCase()
@@ -183,13 +195,21 @@
   }
 
   async function passRow(row) {
-    const passBtn = findButtonByText(row, 'Pass');
-    if (!passBtn || passBtn.disabled) return false;
-    passBtn.click();
+    // A button can read disabled for a moment mid re-render, not just when
+    // truly unavailable -- give it a short grace period before giving up.
+    const ready = await waitForCondition(() => {
+      const btn = findButtonByText(row, 'Pass');
+      return !!btn && !btn.disabled;
+    }, { timeout: 500, interval: 50 });
+    if (!ready) return false;
+
+    findButtonByText(row, 'Pass').click();
+
     // No funds check needed for a pass, so this can run much tighter than
-    // the hire/tenure loops — just enough for the row's exit animation to
-    // clear before the next query.
-    await wait(200);
+    // the hire/tenure loops -- but instead of guessing a fixed delay for
+    // the exit animation (which caused false "done" reads when a re-render
+    // ran long), wait until this exact row actually leaves the market list.
+    await waitForCondition(() => !getMarketRows().includes(row), { timeout: 3000, interval: 50 });
     return true;
   }
 
