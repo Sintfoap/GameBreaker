@@ -23,6 +23,8 @@
 //        MU.stockUpTo(level)  // buys each material in "Stores and stock" until its quantity reaches level
 //        MU.assembleParty()   // builds a party (up to 7 students, up to 4 escorts) for the selected commission
 //        MU.repairAll()       // repairs every building in "Capital projects" with a non-zero repair cost
+//        MU.runActionPage()   // runs hireScribes -> passAll -> tenureAll -> repairAll
+//        MU.runTermPage()     // runs graduateYear6 -> propose schedule -> declare by aptitude -> open the week
 //
 // The hire/tenure/stock/repair commands borrow from the Merchant Houses
 // automatically if gold on hand isn't enough to cover the next action's
@@ -826,6 +828,133 @@
     return repaired;
   }
 
+  // Waits for any DOM mutation under `target` rather than a fixed delay.
+  // Proposing a schedule and declaring by aptitude don't clear a row or
+  // flip a badge the way the batch actions above do -- a re-render
+  // somewhere in the section is the only observable signal that the click
+  // did something, so this is a best-effort "something changed" check, not
+  // proof the action fully succeeded.
+  function waitForMutation(target, timeout = 1500) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const observer = new MutationObserver(() => {
+        if (settled) return;
+        settled = true;
+        observer.disconnect();
+        resolve(true);
+      });
+      observer.observe(target, { childList: true, subtree: true, characterData: true, attributes: true });
+      setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        observer.disconnect();
+        resolve(false);
+      }, timeout);
+    });
+  }
+
+  async function proposeSchedule() {
+    const section = findSectionByHeading('Timetable');
+    if (!section) throw new Error('Could not find the "Timetable" section on this page.');
+    const btn = findButtonByText(section, 'Propose a schedule');
+    if (!btn || btn.disabled) return 'unavailable';
+    btn.click();
+    const changed = await waitForMutation(section);
+    return changed ? 'ok' : 'stuck';
+  }
+
+  // The button's label includes a student count ("Declare 585 by
+  // aptitude") that changes every time, so it's matched by its fixed
+  // prefix instead of an exact string.
+  async function declareByAptitude() {
+    const section = findSectionByHeading('Students');
+    if (!section) throw new Error('Could not find the "Students" section on this page.');
+    const btn = findButtonStartingWith(section, 'Declare');
+    if (!btn || btn.disabled) return 'unavailable';
+    btn.click();
+    const changed = await waitForMutation(section);
+    return changed ? 'ok' : 'stuck';
+  }
+
+  // "Open the week" is duplicated in the page (once inline at the end of
+  // the Term page, once in the persistent bottom action bar), both mirroring
+  // the same underlying state -- this clicks whichever copy is enabled.
+  async function openTheWeek() {
+    function enabledButton() {
+      return Array.from(document.querySelectorAll('button')).find(
+        (b) => b.textContent.trim() === 'Open the week' && !b.disabled
+      );
+    }
+    const btn = enabledButton();
+    if (!btn) return 'unavailable';
+    btn.click();
+    const cleared = await waitForCondition(() => !enabledButton(), { timeout: 5000, interval: 100 });
+    return cleared ? 'ok' : 'stuck';
+  }
+
+  // Runs the Term-page end-of-term sequence: graduate every yr-6 student,
+  // propose next term's schedule, declare any remaining students by
+  // aptitude (skipped if that button isn't showing), then open the week.
+  // Each step's failure is caught so one broken step doesn't stop the rest.
+  async function runTermPage() {
+    const results = {};
+
+    try {
+      results.graduateYear6 = await graduateYear(6);
+    } catch (err) {
+      console.warn(`[MU] graduateYear6 failed: ${err.message}`);
+      results.graduateYear6 = null;
+    }
+
+    try {
+      const result = await proposeSchedule();
+      if (result === 'unavailable') {
+        console.warn('[MU] Skipping propose schedule — button unavailable.');
+      } else if (result === 'stuck') {
+        console.warn('[MU] Proposed a schedule, but the page showed no visible change.');
+      } else {
+        console.log('[MU] Proposed a schedule.');
+      }
+      results.proposeSchedule = result;
+    } catch (err) {
+      console.warn(`[MU] proposeSchedule failed: ${err.message}`);
+      results.proposeSchedule = null;
+    }
+
+    try {
+      const result = await declareByAptitude();
+      if (result === 'unavailable') {
+        console.log('[MU] Declare by aptitude isn\'t available right now — skipping.');
+      } else if (result === 'stuck') {
+        console.warn('[MU] Declared by aptitude, but the page showed no visible change.');
+      } else {
+        console.log('[MU] Declared remaining students by aptitude.');
+      }
+      results.declareByAptitude = result;
+    } catch (err) {
+      console.warn(`[MU] declareByAptitude failed: ${err.message}`);
+      results.declareByAptitude = null;
+    }
+
+    try {
+      const result = await openTheWeek();
+      if (result === 'unavailable') {
+        console.warn('[MU] Open the week isn\'t available — there may still be something to settle.');
+      } else if (result === 'stuck') {
+        console.warn('[MU] Clicked Open the week, but it didn\'t appear to take effect.');
+      } else {
+        console.log('[MU] Opened the week.');
+      }
+      results.openTheWeek = result;
+    } catch (err) {
+      console.warn(`[MU] openTheWeek failed: ${err.message}`);
+      results.openTheWeek = null;
+    }
+
+    console.log('[MU] Term page run complete.', results);
+    return results;
+  }
+
   // Runs the four Action-page batch commands back to back: hiring Scribes
   // off the market, passing on everyone left, tenuring faculty, and
   // repairing Capital projects. Each step's failure is caught so one
@@ -896,9 +1025,10 @@
   MU.assembleParty = (opts) => assembleParty(opts || {});
   MU.repairAll = () => repairAll();
   MU.runActionPage = () => runActionPage();
+  MU.runTermPage = () => runTermPage();
 
   window.MU = MU;
   console.log(
-    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.setTeaching(fraction), MU.stockUpTo(level), MU.assembleParty(), MU.repairAll(), or MU.runActionPage() (hireScribes -> passAll -> tenureAll -> repairAll).'
+    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.setTeaching(fraction), MU.stockUpTo(level), MU.assembleParty(), MU.repairAll(), MU.runActionPage() (hireScribes -> passAll -> tenureAll -> repairAll), or MU.runTermPage() (graduateYear6 -> propose schedule -> declare by aptitude -> open the week).'
   );
 })();

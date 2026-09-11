@@ -33,6 +33,7 @@ and material purchasing from the Week page.
    - `MU.assembleParty()` — with a commission selected in "Send a party" (Today page), greedily adds students (up to 7) and then escorts/professors (up to 4) until every requirement rating is at least "adequate," using the game's own live rating as feedback. It builds the team but does **not** click Send.
    - `MU.repairAll()` — repairs every building in "Capital projects" (Action page) whose repair cost is non-zero.
    - `MU.runActionPage()` — runs `hireScribes()`, `passAll()`, `tenureAll()`, and `repairAll()` back to back (Action page). A failure in one step is logged and doesn't stop the rest.
+   - `MU.runTermPage()` — runs `graduateYear6()`, then clicks "Propose a schedule," then "Declare N by aptitude" (skipped if that button isn't showing), then "Open the week" (Term page). A failure in one step is logged and doesn't stop the rest.
 
 The hire/tenure/stock/repair commands check your gold before each action
 and automatically borrow from the Merchant Houses if you're short.
@@ -61,3 +62,10 @@ anything *not* styled that red/warning color as "adequate or better,"
 following this app's own color convention elsewhere. If that guess is
 wrong for this page, let me know what an adequate-or-better rating
 actually looks like and the threshold check can be corrected.
+
+**Note on `MU.runTermPage()`:** proposing a schedule and declaring by
+aptitude don't clear a row or flip a badge the way the other batch actions
+do, so there's no precise "done" signal to poll for — the tool just waits
+for *some* re-render in the relevant section after each click and moves on.
+"Open the week" appears twice on the page (inline and in the bottom bar);
+whichever copy is enabled gets clicked.
