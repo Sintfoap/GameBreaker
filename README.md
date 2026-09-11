@@ -101,6 +101,11 @@ reload. The save ID is pulled from the page's own URL the same way; pass
 it explicitly as `MU.stockUpTo(level, "your-save-id")` if that ever
 fails.
 
+The API also rejects a `buy_materials` request over 500 units in one
+call — the same shape of per-request cap `sell_relics` has at 200 — so a
+shortfall bigger than that is split into 500-unit batches, paced the same
+way `sellAllRelics()` paces its own batches.
+
 **Note on `MU.sellAllRelics()`:** like `MU.stockUpTo()`, this skips the DOM
 and calls the game's own API
 (`/api/saves/<id>/command` with `{"command":{"type":"sell_relics","count":N}}`)

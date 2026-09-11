@@ -632,11 +632,16 @@
     }
   }
 
-  // Buys each material's exact shortfall against `target` in a single API
-  // call rather than clicking a fixed +40 button repeatedly, so it lands
-  // on the target exactly instead of overshooting. Bypasses the UI like
+  // Buys each material's exact shortfall against `target`, rather than
+  // clicking a fixed +40 button repeatedly, so it lands on the target
+  // exactly instead of overshooting. Bypasses the UI like
   // MU.sellAllRelics(), so the on-page quantities may not visually refresh
   // until the next click or reload.
+  //
+  // The API rejects a buy_materials request over 500 units (the same
+  // per-request cap sell_relics has at 200), so a shortfall bigger than
+  // that is split into 500-unit batches, paced like the standing-order and
+  // sell_relics calls above on the same sequenced-backend-command caution.
   async function stockUpTo(target, saveId) {
     const id = saveId || findSaveIdInUrl();
     if (!id) {
@@ -650,14 +655,21 @@
     let purchases = 0;
     for (const row of rows) {
       const name = materialName(row);
-      const needed = target - materialAmount(row);
-      if (needed <= 0) continue;
+      let remaining = target - materialAmount(row);
+      if (remaining <= 0) continue;
 
-      const estimatedCost = Math.ceil(materialUnitCost(row) * needed);
+      const total = remaining;
+      const unitCost = materialUnitCost(row);
       try {
-        if (estimatedCost > 0) await ensureFunds(estimatedCost);
-        await buyMaterialsExact(id, name, needed);
-        console.log(`[MU] Bought ${needed} ${name} (to reach ${target}).`);
+        while (remaining > 0) {
+          const batch = Math.min(remaining, 500);
+          const estimatedCost = Math.ceil(unitCost * batch);
+          if (estimatedCost > 0) await ensureFunds(estimatedCost);
+          await buyMaterialsExact(id, name, batch);
+          remaining -= batch;
+          console.log(`[MU] Bought ${batch} ${name} (${total - remaining}/${total} toward ${target}).`);
+          if (remaining > 0) await wait(STANDING_ORDER_PACING_MS);
+        }
         purchases++;
       } catch (err) {
         console.warn(`[MU] Stopped buying ${name}: ${err.message}`);
