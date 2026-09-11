@@ -11,10 +11,11 @@ DevTools console — they act on the page using your own logged-in session.
 ### `console-tools/hire-professors.js`
 
 Automates the "On the market" hiring section and Faculty tenure on the
-Action page, plus graduating students from the Term page.
+Action page, graduating students from the Term page, and professor
+standing orders from the Today page.
 
 **Usage:**
-1. Open the game, log in, and go to the relevant page (Action page for hiring/tenure/passing, Term page for graduating).
+1. Open the game, log in, and go to the relevant page (Action page for hiring/tenure/passing, Term page for graduating, Today page for standing orders).
 2. Open DevTools (F12) → Console tab.
 3. Paste the entire contents of `console-tools/hire-professors.js` and press Enter.
 4. Run one of:
@@ -24,6 +25,8 @@ Action page, plus graduating students from the Term page.
    - `MU.tenureAll()` — tenures every hired professor who isn't tenured yet.
    - `MU.passAll()` — passes on every remaining candidate on the market, faster than the built-in "Pass over all" button.
    - `MU.graduateYear6()` — graduates every student tagged "yr 6" in the Students list (Term page).
+   - `MU.setAllRecruit()` — sets every professor's standing order to "recruit" (Today page, under "The Chancellor's time").
+   - `MU.setResearch(fraction)` — sets that fraction of professors (0-1) to "research"; `MU.setResearch(0.1)` for a tenth, `MU.setResearch(1)` for everyone.
 
 The hire/tenure commands check your gold before each action and
 automatically borrow from the Merchant Houses if you're short. Passing is

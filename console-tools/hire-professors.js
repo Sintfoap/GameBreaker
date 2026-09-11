@@ -1,19 +1,22 @@
-// Magic University console tool: hiring, tenure, and graduation.
+// Magic University console tool: hiring, tenure, graduation, and standing orders.
 //
 // Usage:
 //   1. Open the game in your browser, log in, and make sure you're on the
 //      page that has the section you want to act on (the Action page for
 //      "On the market"/"Faculty"/"The treasury"; the Term page for
-//      "Students").
+//      "Students"; the Today page for "Standing orders" under "The
+//      Chancellor's time").
 //   2. Open DevTools (F12) -> Console tab.
 //   3. Paste this entire file and press Enter. You should see "[MU] Loaded.".
 //   4. Run one of:
-//        MU.status()        // reports gold, market composition, and faculty tenure status
-//        MU.hireScribes()   // hires every Scribe candidate on the market
-//        MU.hireAll()       // hires every candidate on the market
-//        MU.tenureAll()     // tenures every hired professor who isn't tenured yet
-//        MU.passAll()       // passes on every remaining candidate on the market
-//        MU.graduateYear6() // graduates every student tagged "yr 6" in the Students list
+//        MU.status()          // reports gold, market composition, and faculty tenure status
+//        MU.hireScribes()     // hires every Scribe candidate on the market
+//        MU.hireAll()         // hires every candidate on the market
+//        MU.tenureAll()       // tenures every hired professor who isn't tenured yet
+//        MU.passAll()         // passes on every remaining candidate on the market
+//        MU.graduateYear6()   // graduates every student tagged "yr 6" in the Students list
+//        MU.setAllRecruit()   // sets every professor's standing order to "recruit"
+//        MU.setResearch(f)    // sets a fraction f (0-1) of professors to "research"; MU.setResearch(1) for all
 //
 // The hire/tenure commands borrow from the Merchant Houses automatically if
 // gold on hand isn't enough to cover the next action's up-front cost. Passing
@@ -37,6 +40,15 @@
     const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
     setter.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // React tracks <select> changes off the native "change" event (not
+  // "input"), so this needs its own setter mirroring setNativeValue above.
+  function setNativeSelectValue(select, value) {
+    const proto = window.HTMLSelectElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+    setter.call(select, value);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   function parseNumber(str) {
@@ -303,6 +315,64 @@
     return graduated;
   }
 
+  function getStandingOrderRows() {
+    const label = Array.from(document.querySelectorAll('div')).find(
+      (el) => el.children.length === 0 && el.textContent.trim() === 'Standing orders'
+    );
+    if (!label) throw new Error('Could not find the "Standing orders" section on this page.');
+    return Array.from(label.parentElement.querySelectorAll(':scope > div')).filter((row) =>
+      row.querySelector('select')
+    );
+  }
+
+  function standingOrderName(row) {
+    return row.querySelector('span')?.textContent?.trim() || '(unnamed)';
+  }
+
+  function setStandingOrder(row, value) {
+    const select = row.querySelector('select');
+    if (!select || select.value === value) return false;
+    setNativeSelectValue(select, value);
+    return true;
+  }
+
+  async function setAllRecruit() {
+    const rows = getStandingOrderRows();
+    let changed = 0;
+    for (const row of rows) {
+      if (setStandingOrder(row, 'recruit')) {
+        console.log(`[MU] Set ${standingOrderName(row)} to recruit.`);
+        changed++;
+        await wait(100);
+      }
+    }
+    console.log(`[MU] Done. Set ${changed} of ${rows.length} standing order(s) to recruit.`);
+    return changed;
+  }
+
+  // fraction is 0-1 (e.g. 0.1 for a tenth, 1 for everyone). At least one
+  // professor is set as long as the fraction is above 0 and someone exists,
+  // rather than rounding a small faculty down to zero.
+  async function setResearch(fraction) {
+    const rows = getStandingOrderRows();
+    if (rows.length === 0) {
+      console.warn('[MU] No standing orders found.');
+      return 0;
+    }
+    const clamped = Math.max(0, Math.min(1, fraction));
+    const count = clamped >= 1 ? rows.length : Math.max(1, Math.round(rows.length * clamped));
+    let changed = 0;
+    for (const row of rows.slice(0, count)) {
+      if (setStandingOrder(row, 'research')) {
+        console.log(`[MU] Set ${standingOrderName(row)} to research.`);
+        changed++;
+        await wait(100);
+      }
+    }
+    console.log(`[MU] Done. Set ${changed} of ${rows.length} standing order(s) to research.`);
+    return changed;
+  }
+
   const MU = window.MU || {};
 
   MU.status = () => {
@@ -342,9 +412,11 @@
   MU.tenureAll = () => tenureAll();
   MU.passAll = () => passAll();
   MU.graduateYear6 = () => graduateYear(6);
+  MU.setAllRecruit = () => setAllRecruit();
+  MU.setResearch = (fraction = 1) => setResearch(fraction);
 
   window.MU = MU;
   console.log(
-    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), or MU.graduateYear6().'
+    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), or MU.setResearch(fraction).'
   );
 })();
