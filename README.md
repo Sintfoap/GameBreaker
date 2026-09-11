@@ -30,7 +30,7 @@ and material purchasing from the Week page.
    - `MU.setResearch(fraction)` — sets that fraction of professors (0-1) to "research"; `MU.setResearch(0.1)` for a tenth, `MU.setResearch(1)` for everyone.
    - `MU.setTeaching(fraction)` — sets that fraction (0-1) of professors *not currently on "research"* to "teach"; `MU.setTeaching(1)` for all of them.
    - `MU.stockUpTo(level)` — for each material in "Stores and stock" (Week page) that's short of `level`, buys the exact shortfall in one call to the game's API, rather than clicking the fixed +40 button repeatedly and overshooting. Optionally `MU.stockUpTo(level, saveId)` if the save ID can't be found in the page URL.
-   - `MU.sellAllRelics()` — sells every finished relic in "Stores and stock" (Week page) by calling the game's API directly in batches of 200, since the "Sell all" button's own request 500s past that count, then runs `stockUpTo(1000)` with the gold just earned. Optionally `MU.sellAllRelics(saveId)` if the save ID can't be found in the page URL.
+   - `MU.sellAllRelics(saveId, restockTarget)` — sells every finished relic in "Stores and stock" (Week page) by calling the game's API directly in batches of 200, since the "Sell all" button's own request 500s past that count, then runs `stockUpTo(restockTarget)` (default `1000`) with the gold just earned. Both arguments are optional — pass `saveId` as `undefined` (or just call `MU.sellAllRelics()`) if the save ID can be found in the page URL, and pass `restockTarget` to stock up to a different level, e.g. `MU.sellAllRelics(undefined, 2000)`.
    - `MU.assembleParty()` — with a commission selected in "Send a party" (Today page), greedily adds students (up to 7) and then escorts/professors (up to 4) until every requirement rating is at least "adequate," using the game's own live rating as feedback. It builds the team but does **not** click Send.
    - `MU.repairAll()` — repairs every building in "Capital projects" (Action page) whose repair cost is non-zero.
    - `MU.declareScribes()` — sets every undeclared student's tradition dropdown (Students list, Term page) straight to Scribe, no button click involved.
@@ -118,5 +118,6 @@ UI, the on-page relic count and gold total may not visually refresh until
 your next click or a reload; trust the console log for what actually
 sold. The save ID is pulled from the page's own URL; pass it explicitly
 as `MU.sellAllRelics("your-save-id")` if that ever fails. It finishes by
-calling `stockUpTo(1000)` regardless of whether there were any relics to
-sell, spending whatever gold is on hand toward restocking materials.
+calling `stockUpTo(restockTarget)` (default `1000`, override with a
+second argument) regardless of whether there were any relics to sell,
+spending whatever gold is on hand toward restocking materials.

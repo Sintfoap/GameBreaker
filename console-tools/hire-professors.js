@@ -21,7 +21,7 @@
 //        MU.setResearch(f)    // sets a fraction f (0-1) of professors to "research"; MU.setResearch(1) for all
 //        MU.setTeaching(f)    // sets a fraction f (0-1) of non-researching professors to "teach"
 //        MU.stockUpTo(level)  // buys the exact shortfall of each material in "Stores and stock" via the API to reach level
-//        MU.sellAllRelics()   // sells every finished relic via the API directly (batches of 200), then stocks materials up to 1000
+//        MU.sellAllRelics()   // sells every finished relic via the API directly (batches of 200), then stocks materials up to 1000 (or MU.sellAllRelics(saveId, level) for a different target)
 //        MU.assembleParty()   // builds a party (up to 7 students, up to 4 escorts) for the selected commission
 //        MU.repairAll()       // repairs every building in "Capital projects" with a non-zero repair cost
 //        MU.declareScribes()  // sets every undeclared student's tradition straight to Scribe
@@ -721,10 +721,11 @@
   // batches (the DOM may not reflect a sale that bypassed the UI), so any
   // relics produced mid-run aren't included; call it again to catch those.
   //
-  // Restocks materials up to 1000 afterward with the gold just earned --
-  // run regardless of whether there were any relics to sell, since it's a
-  // separate step, not conditioned on a sale actually happening.
-  async function sellAllRelics(saveId) {
+  // Restocks materials up to restockTarget afterward with the gold just
+  // earned -- run regardless of whether there were any relics to sell,
+  // since it's a separate step, not conditioned on a sale actually
+  // happening.
+  async function sellAllRelics(saveId, restockTarget = 1000) {
     const id = saveId || findSaveIdInUrl();
     if (!id) {
       throw new Error(
@@ -750,7 +751,7 @@
       console.log('[MU] No relics to sell.');
     }
 
-    const purchased = await stockUpTo(1000, id);
+    const purchased = await stockUpTo(restockTarget, id);
     return { sold, purchased };
   }
 
@@ -1211,7 +1212,7 @@
   MU.setResearch = (fraction = 1) => setResearch(fraction);
   MU.setTeaching = (fraction = 1) => setTeaching(fraction);
   MU.stockUpTo = (target, saveId) => stockUpTo(target, saveId);
-  MU.sellAllRelics = (saveId) => sellAllRelics(saveId);
+  MU.sellAllRelics = (saveId, restockTarget) => sellAllRelics(saveId, restockTarget);
   MU.assembleParty = (opts) => assembleParty(opts || {});
   MU.repairAll = () => repairAll();
   MU.declareScribes = () => declareScribes();
