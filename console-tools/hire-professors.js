@@ -21,7 +21,7 @@
 //        MU.setResearch(f)    // sets a fraction f (0-1) of professors to "research"; MU.setResearch(1) for all
 //        MU.setTeaching(f)    // sets a fraction f (0-1) of non-researching professors to "teach"
 //        MU.stockUpTo(level)  // buys each material in "Stores and stock" until its quantity reaches level
-//        MU.sellAllRelics()   // sells every finished relic via the API directly, in batches of 200
+//        MU.sellAllRelics()   // sells every finished relic via the API directly (batches of 200), then stocks materials up to 1000
 //        MU.assembleParty()   // builds a party (up to 7 students, up to 4 escorts) for the selected commission
 //        MU.repairAll()       // repairs every building in "Capital projects" with a non-zero repair cost
 //        MU.declareScribes()  // sets every undeclared student's tradition straight to Scribe
@@ -691,6 +691,10 @@
   // 200 from that fixed total -- it doesn't re-read the page between
   // batches (the DOM may not reflect a sale that bypassed the UI), so any
   // relics produced mid-run aren't included; call it again to catch those.
+  //
+  // Restocks materials up to 1000 afterward with the gold just earned --
+  // run regardless of whether there were any relics to sell, since it's a
+  // separate step, not conditioned on a sale actually happening.
   async function sellAllRelics(saveId) {
     const id = saveId || findSaveIdInUrl();
     if (!id) {
@@ -702,22 +706,23 @@
 
     let remaining = getRelicCount();
     const total = remaining;
-    if (total <= 0) {
+    let sold = 0;
+    if (total > 0) {
+      while (remaining > 0) {
+        const batch = Math.min(remaining, 200);
+        await sellRelicsBatch(id, batch);
+        sold += batch;
+        remaining -= batch;
+        console.log(`[MU] Sold ${batch} relic(s) (${sold}/${total}).`);
+        if (remaining > 0) await wait(STANDING_ORDER_PACING_MS);
+      }
+      console.log(`[MU] Done. Sold ${sold} relic(s).`);
+    } else {
       console.log('[MU] No relics to sell.');
-      return 0;
     }
 
-    let sold = 0;
-    while (remaining > 0) {
-      const batch = Math.min(remaining, 200);
-      await sellRelicsBatch(id, batch);
-      sold += batch;
-      remaining -= batch;
-      console.log(`[MU] Sold ${batch} relic(s) (${sold}/${total}).`);
-      if (remaining > 0) await wait(STANDING_ORDER_PACING_MS);
-    }
-    console.log(`[MU] Done. Sold ${sold} relic(s).`);
-    return sold;
+    const purchased = await stockUpTo(1000);
+    return { sold, purchased };
   }
 
   // "Send a party": builds a mission party using the game's own live
