@@ -19,6 +19,7 @@
 //        MU.graduateYear6()   // graduates every student tagged "yr 6" in the Students list
 //        MU.setAllRecruit()   // sets every professor's standing order to "recruit"
 //        MU.setResearch(f)    // sets a fraction f (0-1) of professors to "research"; MU.setResearch(1) for all
+//        MU.setTeaching(f)    // sets a fraction f (0-1) of non-researching professors to "teach"
 //        MU.stockUpTo(level)  // buys each material in "Stores and stock" until its quantity reaches level
 //        MU.assembleParty()   // builds a party (up to 7 students, up to 4 escorts) for the selected commission
 //        MU.repairAll()       // repairs every building in "Capital projects" with a non-zero repair cost
@@ -359,24 +360,32 @@
   // fraction is 0-1 (e.g. 0.1 for a tenth, 1 for everyone). At least one
   // professor is set as long as the fraction is above 0 and someone exists,
   // rather than rounding a small faculty down to zero.
-  async function setResearch(fraction) {
-    const rows = getStandingOrderRows();
+  async function setOrderForFraction(rows, fraction, value, label) {
     if (rows.length === 0) {
-      console.warn('[MU] No standing orders found.');
+      console.warn(`[MU] No eligible standing orders found for "${label}".`);
       return 0;
     }
     const clamped = Math.max(0, Math.min(1, fraction));
     const count = clamped >= 1 ? rows.length : Math.max(1, Math.round(rows.length * clamped));
     let changed = 0;
     for (const row of rows.slice(0, count)) {
-      if (setStandingOrder(row, 'research')) {
-        console.log(`[MU] Set ${standingOrderName(row)} to research.`);
+      if (setStandingOrder(row, value)) {
+        console.log(`[MU] Set ${standingOrderName(row)} to ${value}.`);
         changed++;
         await wait(100);
       }
     }
-    console.log(`[MU] Done. Set ${changed} of ${rows.length} standing order(s) to research.`);
+    console.log(`[MU] Done. Set ${changed} of ${rows.length} standing order(s) to ${value}.`);
     return changed;
+  }
+
+  async function setResearch(fraction) {
+    return setOrderForFraction(getStandingOrderRows(), fraction, 'research', 'research');
+  }
+
+  async function setTeaching(fraction) {
+    const rows = getStandingOrderRows().filter((row) => row.querySelector('select')?.value !== 'research');
+    return setOrderForFraction(rows, fraction, 'teach', 'non-researching -> teach');
   }
 
   function getMaterialRows() {
@@ -649,12 +658,13 @@
   MU.graduateYear6 = () => graduateYear(6);
   MU.setAllRecruit = () => setAllRecruit();
   MU.setResearch = (fraction = 1) => setResearch(fraction);
+  MU.setTeaching = (fraction = 1) => setTeaching(fraction);
   MU.stockUpTo = (target) => stockUpTo(target);
   MU.assembleParty = (opts) => assembleParty(opts || {});
   MU.repairAll = () => repairAll();
 
   window.MU = MU;
   console.log(
-    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.stockUpTo(level), MU.assembleParty(), or MU.repairAll().'
+    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.setTeaching(fraction), MU.stockUpTo(level), MU.assembleParty(), or MU.repairAll().'
   );
 })();

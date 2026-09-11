@@ -28,6 +28,7 @@ and material purchasing from the Week page.
    - `MU.graduateYear6()` — graduates every student tagged "yr 6" in the Students list (Term page).
    - `MU.setAllRecruit()` — sets every professor's standing order to "recruit" (Today page, under "The Chancellor's time").
    - `MU.setResearch(fraction)` — sets that fraction of professors (0-1) to "research"; `MU.setResearch(0.1)` for a tenth, `MU.setResearch(1)` for everyone.
+   - `MU.setTeaching(fraction)` — sets that fraction (0-1) of professors *not currently on "research"* to "teach"; `MU.setTeaching(1)` for all of them.
    - `MU.stockUpTo(level)` — buys each material in "Stores and stock" (Week page) until its quantity reaches `level`.
    - `MU.assembleParty()` — with a commission selected in "Send a party" (Today page), greedily adds students (up to 7) and then escorts/professors (up to 4) until every requirement rating is at least "adequate," using the game's own live rating as feedback. It builds the team but does **not** click Send.
    - `MU.repairAll()` — repairs every building in "Capital projects" (Action page) whose repair cost is non-zero.
