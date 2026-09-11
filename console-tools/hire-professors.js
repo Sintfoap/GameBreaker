@@ -1,17 +1,19 @@
-// Magic University console tool: hiring and tenure.
+// Magic University console tool: hiring, tenure, and graduation.
 //
 // Usage:
 //   1. Open the game in your browser, log in, and make sure you're on the
-//      Action page (the one showing "On the market", "Faculty", "The
-//      treasury", etc).
+//      page that has the section you want to act on (the Action page for
+//      "On the market"/"Faculty"/"The treasury"; the Term page for
+//      "Students").
 //   2. Open DevTools (F12) -> Console tab.
 //   3. Paste this entire file and press Enter. You should see "[MU] Loaded.".
 //   4. Run one of:
-//        MU.status()       // reports gold, market composition, and faculty tenure status
-//        MU.hireScribes()  // hires every Scribe candidate on the market
-//        MU.hireAll()      // hires every candidate on the market
-//        MU.tenureAll()    // tenures every hired professor who isn't tenured yet
-//        MU.passAll()      // passes on every remaining candidate on the market
+//        MU.status()        // reports gold, market composition, and faculty tenure status
+//        MU.hireScribes()   // hires every Scribe candidate on the market
+//        MU.hireAll()       // hires every candidate on the market
+//        MU.tenureAll()     // tenures every hired professor who isn't tenured yet
+//        MU.passAll()       // passes on every remaining candidate on the market
+//        MU.graduateYear6() // graduates every student tagged "yr 6" in the Students list
 //
 // The hire/tenure commands borrow from the Merchant Houses automatically if
 // gold on hand isn't enough to cover the next action's up-front cost. Passing
@@ -248,6 +250,59 @@
     return tenured;
   }
 
+  function findButtonStartingWith(container, text) {
+    const lower = text.toLowerCase();
+    return Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent.trim().toLowerCase().startsWith(lower)
+    );
+  }
+
+  function getStudentRows() {
+    const section = findSectionByHeading('Students');
+    if (!section) throw new Error('Could not find the "Students" section on this page.');
+    return Array.from(section.querySelectorAll(':scope div.flex.items-center.gap-2.px-2.py-1.text-xs'));
+  }
+
+  function studentName(row) {
+    const btn = row.querySelector('button.truncate');
+    return btn ? btn.textContent.trim() : '(unnamed student)';
+  }
+
+  function studentYear(row) {
+    const span = Array.from(row.querySelectorAll(':scope > span')).find((s) =>
+      /^yr\s*\d+$/i.test(s.textContent.trim())
+    );
+    if (!span) return null;
+    const match = span.textContent.match(/(\d+)/);
+    return match ? Number(match[1]) : null;
+  }
+
+  async function graduateRow(row) {
+    const btn = findButtonStartingWith(row, 'Graduate');
+    if (!btn || btn.disabled) return false;
+    btn.click();
+    await wait(400);
+    return true;
+  }
+
+  async function graduateYear(targetYear) {
+    let graduated = 0;
+    for (let i = 0; i < 200; i++) {
+      const row = getStudentRows().find((r) => studentYear(r) === targetYear);
+      if (!row) break;
+      const name = studentName(row);
+      const ok = await graduateRow(row);
+      if (!ok) {
+        console.warn(`[MU] Skipping ${name} — graduate button unavailable.`);
+        break;
+      }
+      console.log(`[MU] Graduated ${name} (yr ${targetYear}).`);
+      graduated++;
+    }
+    console.log(`[MU] Done. Graduated ${graduated} student(s) at yr ${targetYear}.`);
+    return graduated;
+  }
+
   const MU = window.MU || {};
 
   MU.status = () => {
@@ -286,7 +341,10 @@
   MU.hireAll = () => hireMatching(() => true);
   MU.tenureAll = () => tenureAll();
   MU.passAll = () => passAll();
+  MU.graduateYear6 = () => graduateYear(6);
 
   window.MU = MU;
-  console.log('[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), or MU.passAll().');
+  console.log(
+    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), or MU.graduateYear6().'
+  );
 })();
