@@ -1,11 +1,12 @@
-// Magic University console tool: hiring, tenure, graduation, and standing orders.
+// Magic University console tool: hiring, tenure, graduation, standing
+// orders, and stock purchasing.
 //
 // Usage:
 //   1. Open the game in your browser, log in, and make sure you're on the
 //      page that has the section you want to act on (the Action page for
 //      "On the market"/"Faculty"/"The treasury"; the Term page for
 //      "Students"; the Today page for "Standing orders" under "The
-//      Chancellor's time").
+//      Chancellor's time"; the Week page for "Stores and stock").
 //   2. Open DevTools (F12) -> Console tab.
 //   3. Paste this entire file and press Enter. You should see "[MU] Loaded.".
 //   4. Run one of:
@@ -17,12 +18,13 @@
 //        MU.graduateYear6()   // graduates every student tagged "yr 6" in the Students list
 //        MU.setAllRecruit()   // sets every professor's standing order to "recruit"
 //        MU.setResearch(f)    // sets a fraction f (0-1) of professors to "research"; MU.setResearch(1) for all
+//        MU.stockUpTo(level)  // buys each material in "Stores and stock" until its quantity reaches level
 //
-// The hire/tenure commands borrow from the Merchant Houses automatically if
-// gold on hand isn't enough to cover the next action's up-front cost. Passing
-// costs nothing, so MU.passAll() just runs through the list as fast as the
-// page's own exit animation allows — faster than the built-in "Pass over
-// all" button.
+// The hire/tenure/stock commands borrow from the Merchant Houses
+// automatically if gold on hand isn't enough to cover the next action's
+// up-front cost. Passing costs nothing, so MU.passAll() just runs through
+// the list as fast as the page's own exit animation allows — faster than
+// the built-in "Pass over all" button.
 
 (function () {
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -373,6 +375,71 @@
     return changed;
   }
 
+  function getMaterialRows() {
+    const section = findSectionByHeading('Stores and stock');
+    if (!section) throw new Error('Could not find the "Stores and stock" section on this page.');
+    const label = Array.from(section.querySelectorAll('div')).find(
+      (el) => el.children.length === 0 && el.textContent.trim() === 'Materials'
+    );
+    if (!label || !label.nextElementSibling) {
+      throw new Error('Could not find the "Materials" list in "Stores and stock".');
+    }
+    return Array.from(label.nextElementSibling.querySelectorAll(':scope > div'));
+  }
+
+  function materialName(row) {
+    return row.querySelector('span.capitalize')?.textContent?.trim() || '(unknown material)';
+  }
+
+  function materialAmount(row) {
+    return parseNumber(row.querySelector('span.tabular')?.textContent);
+  }
+
+  // Buy buttons read like "+40 · 240g" — a fixed quantity added for a fixed
+  // cost, not a per-unit price, so both need parsing off the button itself.
+  function materialBuyInfo(row) {
+    const btn = row.querySelector('button');
+    if (!btn) return null;
+    const match = btn.textContent.match(/\+([\d,]+)\D+([\d,]+)g/);
+    if (!match) return null;
+    return { button: btn, quantity: parseNumber(match[1]), cost: parseNumber(match[2]) };
+  }
+
+  async function buyMaterialRow(row, name) {
+    const buy = materialBuyInfo(row);
+    if (!buy || buy.button.disabled) return false;
+    await ensureFunds(buy.cost);
+    buy.button.click();
+    console.log(`[MU] Bought +${buy.quantity} ${name} for ${buy.cost}g.`);
+    await wait(400);
+    return true;
+  }
+
+  async function stockUpTo(target) {
+    const names = getMaterialRows().map(materialName);
+    let purchases = 0;
+    for (const name of names) {
+      for (let i = 0; i < 200; i++) {
+        const row = getMaterialRows().find((r) => materialName(r) === name);
+        if (!row) break;
+        if (materialAmount(row) >= target) break;
+        try {
+          const ok = await buyMaterialRow(row, name);
+          if (!ok) {
+            console.warn(`[MU] Stopped buying ${name} — buy button unavailable.`);
+            break;
+          }
+          purchases++;
+        } catch (err) {
+          console.warn(`[MU] Stopped buying ${name}: ${err.message}`);
+          break;
+        }
+      }
+    }
+    console.log(`[MU] Done. Made ${purchases} purchase(s) toward a target of ${target}.`);
+    return purchases;
+  }
+
   const MU = window.MU || {};
 
   MU.status = () => {
@@ -414,9 +481,10 @@
   MU.graduateYear6 = () => graduateYear(6);
   MU.setAllRecruit = () => setAllRecruit();
   MU.setResearch = (fraction = 1) => setResearch(fraction);
+  MU.stockUpTo = (target) => stockUpTo(target);
 
   window.MU = MU;
   console.log(
-    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), or MU.setResearch(fraction).'
+    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), or MU.stockUpTo(level).'
   );
 })();
