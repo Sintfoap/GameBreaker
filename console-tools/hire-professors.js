@@ -21,8 +21,9 @@
 //        MU.setResearch(f)    // sets a fraction f (0-1) of professors to "research"; MU.setResearch(1) for all
 //        MU.stockUpTo(level)  // buys each material in "Stores and stock" until its quantity reaches level
 //        MU.assembleParty()   // builds a party (up to 7 students, up to 4 escorts) for the selected commission
+//        MU.repairAll()       // repairs every building in "Capital projects" with a non-zero repair cost
 //
-// The hire/tenure/stock commands borrow from the Merchant Houses
+// The hire/tenure/stock/repair commands borrow from the Merchant Houses
 // automatically if gold on hand isn't enough to cover the next action's
 // up-front cost. Passing costs nothing, so MU.passAll() just runs through
 // the list as fast as the page's own exit animation allows — faster than
@@ -547,6 +548,66 @@
     return { students, escorts };
   }
 
+  function getBuildingRows() {
+    const section = findSectionByHeading('Capital projects');
+    if (!section) throw new Error('Could not find the "Capital projects" section on this page.');
+    return Array.from(section.querySelectorAll(':scope > div.p-4 > div.space-y-1 > div'));
+  }
+
+  function buildingName(row) {
+    const el = row.querySelector('span.truncate');
+    if (!el) return '(unnamed building)';
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll('span').forEach((s) => s.remove());
+    return clone.textContent.trim() || '(unnamed building)';
+  }
+
+  function buildingRepairButton(row) {
+    return findButtonStartingWith(row, 'Repair');
+  }
+
+  function buildingRepairCost(row) {
+    const btn = buildingRepairButton(row);
+    return btn ? parseCostFromText(btn.textContent) : 0;
+  }
+
+  async function repairRow(row, name) {
+    const btn = buildingRepairButton(row);
+    if (!btn || btn.disabled) return false;
+    const cost = buildingRepairCost(row);
+    if (cost <= 0) return false;
+    await ensureFunds(cost);
+    btn.click();
+    console.log(`[MU] Repaired ${name} for ${cost}g.`);
+    await wait(500);
+    return true;
+  }
+
+  async function repairAll() {
+    let repaired = 0;
+    for (let i = 0; i < 100; i++) {
+      const row = getBuildingRows().find((r) => {
+        const btn = buildingRepairButton(r);
+        return btn && !btn.disabled && buildingRepairCost(r) > 0;
+      });
+      if (!row) break;
+      const name = buildingName(row);
+      try {
+        const ok = await repairRow(row, name);
+        if (!ok) {
+          console.warn(`[MU] Skipping ${name} — repair button unavailable.`);
+          break;
+        }
+        repaired++;
+      } catch (err) {
+        console.warn(`[MU] Stopped before repairing ${name}: ${err.message}`);
+        break;
+      }
+    }
+    console.log(`[MU] Done. Repaired ${repaired} building(s).`);
+    return repaired;
+  }
+
   const MU = window.MU || {};
 
   MU.status = () => {
@@ -590,9 +651,10 @@
   MU.setResearch = (fraction = 1) => setResearch(fraction);
   MU.stockUpTo = (target) => stockUpTo(target);
   MU.assembleParty = (opts) => assembleParty(opts || {});
+  MU.repairAll = () => repairAll();
 
   window.MU = MU;
   console.log(
-    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.stockUpTo(level), or MU.assembleParty().'
+    '[MU] Loaded. Try MU.status(), MU.hireScribes(), MU.hireAll(), MU.tenureAll(), MU.passAll(), MU.graduateYear6(), MU.setAllRecruit(), MU.setResearch(fraction), MU.stockUpTo(level), MU.assembleParty(), or MU.repairAll().'
   );
 })();

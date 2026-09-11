@@ -10,13 +10,13 @@ DevTools console — they act on the page using your own logged-in session.
 
 ### `console-tools/hire-professors.js`
 
-Automates the "On the market" hiring section and Faculty tenure on the
-Action page, graduating students from the Term page, professor standing
-orders and mission parties from the Today page, and material purchasing
-from the Week page.
+Automates the "On the market" hiring section, Faculty tenure, and Capital
+projects repairs on the Action page, graduating students from the Term
+page, professor standing orders and mission parties from the Today page,
+and material purchasing from the Week page.
 
 **Usage:**
-1. Open the game, log in, and go to the relevant page (Action page for hiring/tenure/passing, Term page for graduating, Today page for standing orders/parties, Week page for stock purchasing).
+1. Open the game, log in, and go to the relevant page (Action page for hiring/tenure/passing/repairing, Term page for graduating, Today page for standing orders/parties, Week page for stock purchasing).
 2. Open DevTools (F12) → Console tab.
 3. Paste the entire contents of `console-tools/hire-professors.js` and press Enter.
 4. Run one of:
@@ -30,11 +30,12 @@ from the Week page.
    - `MU.setResearch(fraction)` — sets that fraction of professors (0-1) to "research"; `MU.setResearch(0.1)` for a tenth, `MU.setResearch(1)` for everyone.
    - `MU.stockUpTo(level)` — buys each material in "Stores and stock" (Week page) until its quantity reaches `level`.
    - `MU.assembleParty()` — with a commission selected in "Send a party" (Today page), greedily adds students (up to 7) and then escorts/professors (up to 4) until every requirement rating is at least "adequate," using the game's own live rating as feedback. It builds the team but does **not** click Send.
+   - `MU.repairAll()` — repairs every building in "Capital projects" (Action page) whose repair cost is non-zero.
 
-The hire/tenure/stock commands check your gold before each action and
-automatically borrow from the Merchant Houses if you're short. Passing is
-free, so `MU.passAll()` just runs through the list as fast as the page's
-own exit animation allows.
+The hire/tenure/stock/repair commands check your gold before each action
+and automatically borrow from the Merchant Houses if you're short.
+Passing is free, so `MU.passAll()` just runs through the list as fast as
+the page's own exit animation allows.
 
 **Note on `MU.assembleParty()`:** there's no per-student/professor stat
 visible in the page for a mission requirement — only the party's overall
