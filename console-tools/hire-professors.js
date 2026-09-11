@@ -470,8 +470,10 @@
     return 'ok';
   }
 
-  // No item cap: keeps going until no yr-N student remains (skipping, not
-  // retrying, students blocked by a commission).
+  // No item cap: keeps going until no yr-N student remains. A student
+  // whose Graduate button won't cooperate (or whose row won't clear) is
+  // skipped, not treated as a reason to stop -- same as the other batch
+  // actions, so one bad row doesn't cut the whole run short.
   async function graduateYear(targetYear) {
     let graduated = 0;
     const skipped = new Set();
@@ -487,14 +489,19 @@
       }
       if (result === 'unavailable') {
         console.warn(`[MU] Skipping ${name} — graduate button unavailable.`);
-        break;
+        skipped.add(name);
+        continue;
       }
       if (result === 'stuck') {
-        console.warn(`[MU] Stopped — ${name} didn't graduate or show a reason why; the page may be slow to update.`);
-        break;
+        console.warn(`[MU] Skipping ${name} — didn't graduate or show a reason why; the page may be slow to update.`);
+        skipped.add(name);
+        continue;
       }
       console.log(`[MU] Graduated ${name} (yr ${targetYear}).`);
       graduated++;
+    }
+    if (skipped.size > 0) {
+      console.warn(`[MU] Skipped ${skipped.size} student(s): ${Array.from(skipped.values()).join(', ')}.`);
     }
     console.log(`[MU] Done. Graduated ${graduated} student(s) at yr ${targetYear}.`);
     return graduated;
