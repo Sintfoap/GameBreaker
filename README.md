@@ -29,7 +29,7 @@ and material purchasing from the Week page.
    - `MU.setAllRecruit()` — sets every professor's standing order to "recruit" (Today page, under "The Chancellor's time").
    - `MU.setResearch(fraction)` — sets that fraction of professors (0-1) to "research"; `MU.setResearch(0.1)` for a tenth, `MU.setResearch(1)` for everyone.
    - `MU.setTeaching(fraction)` — sets that fraction (0-1) of professors *not currently on "research"* to "teach"; `MU.setTeaching(1)` for all of them.
-   - `MU.stockUpTo(level)` — buys each material in "Stores and stock" (Week page) until its quantity reaches `level`.
+   - `MU.stockUpTo(level)` — for each material in "Stores and stock" (Week page) that's short of `level`, buys the exact shortfall in one call to the game's API, rather than clicking the fixed +40 button repeatedly and overshooting. Optionally `MU.stockUpTo(level, saveId)` if the save ID can't be found in the page URL.
    - `MU.sellAllRelics()` — sells every finished relic in "Stores and stock" (Week page) by calling the game's API directly in batches of 200, since the "Sell all" button's own request 500s past that count, then runs `stockUpTo(1000)` with the gold just earned. Optionally `MU.sellAllRelics(saveId)` if the save ID can't be found in the page URL.
    - `MU.assembleParty()` — with a commission selected in "Send a party" (Today page), greedily adds students (up to 7) and then escorts/professors (up to 4) until every requirement rating is at least "adequate," using the game's own live rating as feedback. It builds the team but does **not** click Send.
    - `MU.repairAll()` — repairs every building in "Capital projects" (Action page) whose repair cost is non-zero.
@@ -42,8 +42,8 @@ and automatically borrow from the Merchant Houses if you're short.
 Passing is free, so `MU.passAll()` just runs through the list as fast as
 the page's own exit animation allows.
 
-None of the batch commands (`hireAll`/`hireScribes`/`tenureAll`/`passAll`/
-`graduateYear6`/`stockUpTo`/`repairAll`) cap how many items they process —
+None of the DOM-driven batch commands (`hireAll`/`hireScribes`/`tenureAll`/
+`passAll`/`graduateYear6`/`repairAll`) cap how many items they process —
 each keeps going until nothing left matches its goal (empty list, cleared
 cost, cleared tenure flag, etc). Between actions, each waits for that
 specific effect to actually appear in the page (up to a few seconds)
@@ -86,8 +86,23 @@ aptitude-based choice of tradition entirely), call `MU.declareScribes()`
 instead, which sets every undeclared student's dropdown directly to
 Scribe.
 
-**Note on `MU.sellAllRelics()`:** this is the one command here that skips
-the DOM entirely and calls the game's own API
+**Note on `MU.stockUpTo()`:** like `MU.sellAllRelics()`, this calls the
+game's own API (`/api/saves/<id>/command` with
+`{"command":{"type":"buy_materials","material":"clay","quantity":N}}`)
+directly instead of clicking the in-page buy button, which only ever adds
+a fixed lot (e.g. +40) per click and would need repeated clicks — and can
+overshoot the target by up to a lot's worth — to reach an arbitrary level.
+It estimates a per-unit price off the button's own advertised lot cost
+(cost ÷ quantity) purely to decide how much to pre-borrow before buying;
+the server charges whatever it actually charges regardless of how that
+estimate turns out. Bypasses the UI like `sellAllRelics()`, so the
+on-page quantities may not visually refresh until your next click or a
+reload. The save ID is pulled from the page's own URL the same way; pass
+it explicitly as `MU.stockUpTo(level, "your-save-id")` if that ever
+fails.
+
+**Note on `MU.sellAllRelics()`:** like `MU.stockUpTo()`, this skips the DOM
+and calls the game's own API
 (`/api/saves/<id>/command` with `{"command":{"type":"sell_relics","count":N}}`)
 directly, since the in-page "Sell all" button sends the whole count in one
 request and the server errors out past 200. It reads the relic count once

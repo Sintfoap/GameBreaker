@@ -20,7 +20,7 @@
 //        MU.setAllRecruit()   // sets every professor's standing order to "recruit"
 //        MU.setResearch(f)    // sets a fraction f (0-1) of professors to "research"; MU.setResearch(1) for all
 //        MU.setTeaching(f)    // sets a fraction f (0-1) of non-researching professors to "teach"
-//        MU.stockUpTo(level)  // buys each material in "Stores and stock" until its quantity reaches level
+//        MU.stockUpTo(level)  // buys the exact shortfall of each material in "Stores and stock" via the API to reach level
 //        MU.sellAllRelics()   // sells every finished relic via the API directly (batches of 200), then stocks materials up to 1000
 //        MU.assembleParty()   // builds a party (up to 7 students, up to 4 escorts) for the selected commission
 //        MU.repairAll()       // repairs every building in "Capital projects" with a non-zero repair cost
@@ -594,59 +594,69 @@
     return parseNumber(row.querySelector('span.tabular')?.textContent);
   }
 
-  // Buy buttons read like "+40 · 240g" — a fixed quantity added for a fixed
-  // cost, not a per-unit price, so both need parsing off the button itself.
-  function materialBuyInfo(row) {
+  // The button reads like "+40 · 240g" -- a fixed quantity for a fixed
+  // cost, not a per-unit price. Used only to estimate a per-unit price
+  // (cost / quantity) to pre-borrow against before buying an arbitrary
+  // amount via the API below; the server charges whatever it actually
+  // charges regardless of how this estimate turns out.
+  function materialUnitCost(row) {
     const btn = row.querySelector('button');
-    if (!btn) return null;
+    if (!btn) return 0;
     const match = btn.textContent.match(/\+([\d,]+)\D+([\d,]+)g/);
-    if (!match) return null;
-    return { button: btn, quantity: parseNumber(match[1]), cost: parseNumber(match[2]) };
+    if (!match) return 0;
+    const quantity = parseNumber(match[1]);
+    const cost = parseNumber(match[2]);
+    return quantity > 0 ? cost / quantity : 0;
   }
 
-  async function buyMaterialRow(row, name) {
-    const buy = materialBuyInfo(row);
-    if (!buy || buy.button.disabled) return 'unavailable';
-    await ensureFunds(buy.cost);
-    const before = materialAmount(row);
-    buy.button.click();
-    console.log(`[MU] Bought +${buy.quantity} ${name} for ${buy.cost}g.`);
-    const changed = await waitForCondition(() => {
-      const current = getMaterialRows().find((r) => materialName(r) === name);
-      return !!current && materialAmount(current) > before;
-    }, { timeout: 3000, interval: 50 });
-    return changed ? 'ok' : 'stuck';
+  // The in-page button only ever buys in fixed lots of 40, which means
+  // reaching an exact target takes repeated clicks and can overshoot it by
+  // up to 39 units. This instead calls the same buy_materials command the
+  // button uses, but for the exact quantity needed in one request.
+  async function buyMaterialsExact(saveId, material, quantity) {
+    const res = await fetch(`https://hooks.rhysfuller.com/api/saves/${saveId}/command`, {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: { type: 'buy_materials', material, quantity } }),
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      throw new Error(`buy_materials request failed: ${res.status} ${res.statusText}`);
+    }
   }
 
-  // No purchase-count cap per material: keeps buying until its quantity
-  // reaches the target, rather than stopping after an arbitrary number of
-  // purchases.
-  async function stockUpTo(target) {
-    const names = getMaterialRows().map(materialName);
+  // Buys each material's exact shortfall against `target` in a single API
+  // call rather than clicking a fixed +40 button repeatedly, so it lands
+  // on the target exactly instead of overshooting. Bypasses the UI like
+  // MU.sellAllRelics(), so the on-page quantities may not visually refresh
+  // until the next click or reload.
+  async function stockUpTo(target, saveId) {
+    const id = saveId || findSaveIdInUrl();
+    if (!id) {
+      throw new Error(
+        'Could not find your save ID in the page URL. Pass it explicitly: ' +
+          'MU.stockUpTo(level, "your-save-id") (the UUID from the "saves/<id>/command" URL in the Network tab).'
+      );
+    }
+
+    const rows = getMaterialRows();
     let purchases = 0;
-    for (const name of names) {
-      while (true) {
-        const row = getMaterialRows().find((r) => materialName(r) === name);
-        if (!row) break;
-        if (materialAmount(row) >= target) break;
-        try {
-          const result = await buyMaterialRow(row, name);
-          if (result === 'unavailable') {
-            console.warn(`[MU] Stopped buying ${name} — buy button unavailable.`);
-            break;
-          }
-          if (result === 'stuck') {
-            console.warn(`[MU] Stopped buying ${name} — quantity didn't increase after purchase; the page may be slow to update.`);
-            break;
-          }
-          purchases++;
-        } catch (err) {
-          console.warn(`[MU] Stopped buying ${name}: ${err.message}`);
-          break;
-        }
+    for (const row of rows) {
+      const name = materialName(row);
+      const needed = target - materialAmount(row);
+      if (needed <= 0) continue;
+
+      const estimatedCost = Math.ceil(materialUnitCost(row) * needed);
+      try {
+        if (estimatedCost > 0) await ensureFunds(estimatedCost);
+        await buyMaterialsExact(id, name, needed);
+        console.log(`[MU] Bought ${needed} ${name} (to reach ${target}).`);
+        purchases++;
+      } catch (err) {
+        console.warn(`[MU] Stopped buying ${name}: ${err.message}`);
       }
     }
-    console.log(`[MU] Done. Made ${purchases} purchase(s) toward a target of ${target}.`);
+    console.log(`[MU] Done. Bought toward a target of ${target} for ${purchases} material(s).`);
     return purchases;
   }
 
@@ -721,7 +731,7 @@
       console.log('[MU] No relics to sell.');
     }
 
-    const purchased = await stockUpTo(1000);
+    const purchased = await stockUpTo(1000, id);
     return { sold, purchased };
   }
 
@@ -1181,7 +1191,7 @@
   MU.setAllRecruit = () => setAllRecruit();
   MU.setResearch = (fraction = 1) => setResearch(fraction);
   MU.setTeaching = (fraction = 1) => setTeaching(fraction);
-  MU.stockUpTo = (target) => stockUpTo(target);
+  MU.stockUpTo = (target, saveId) => stockUpTo(target, saveId);
   MU.sellAllRelics = (saveId) => sellAllRelics(saveId);
   MU.assembleParty = (opts) => assembleParty(opts || {});
   MU.repairAll = () => repairAll();
